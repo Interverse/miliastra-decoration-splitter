@@ -1,5 +1,5 @@
 /**
- * model.js — structured view over a parsed .gil level.
+ * model.js: structured view over a parsed .gil level.
  *
  * Only the paths needed for decoration extraction are interpreted:
  *
@@ -21,8 +21,8 @@
  *   Decoration (field 27.2)
  *     1  varint id (0x4000xxxx range)
  *     2  varint prefab id
- *     4  repeated component (list A) — type 1 name, type 40 { 502: parent id }
- *     5  repeated component (list B) — type 1 transform, others
+ *     4  repeated component (list A): type 1 name, type 40 { 502: parent id }
+ *     5  repeated component (list B): type 1 transform, others
  *     12 unknown (observed empty)
  *
  *   Component list A type 40 payload (field 50):
@@ -32,7 +32,7 @@
  *   Transform component (list B type 1, payload field 11):
  *     1 vec3 position, 2 vec3 rotation (Euler, degrees), 3 vec3 scale,
  *     501 varint (0xffffffff on world objects)
- *   Vec3 { 1: float x, 2: float y, 3: float z } — zero components omitted.
+ *   Vec3 { 1: float x, 2: float y, 3: float z }, zero components omitted.
  *
  * Everything not listed above is carried through untouched.
  */
@@ -123,7 +123,7 @@ function readName(compFields, payloadMap) {
         if (nf && nf.wire === 2) return fieldString(nf);
       }
     } catch {
-      /* unknown shape — ignore */
+      /* unknown shape, ignore */
     }
   }
   return null;
@@ -168,7 +168,7 @@ export class Level {
     return f ? fieldString(f) : '';
   }
 
-  /** The world-object container field (num 5) — may be absent on odd files. */
+  /** The world-object container field (num 5). May be absent on odd files. */
   get objectContainerField() {
     return this.root.find((f) => f.num === 5 && f.wire === 2);
   }

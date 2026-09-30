@@ -1,4 +1,4 @@
-// .gia file parser — the read-side counterpart of engine/gia/gia-writer.js.
+// .gia file parser, the read-side counterpart of engine/gia/gia-writer.js.
 // Parses a .gia AssetBundle into flat decoration records ready to hand back
 // to splitIntoModels() + buildGia(). Dependency-free; runs in browsers and Node.
 //
@@ -268,7 +268,7 @@ export function parseGia(bytes) {
   }
   const payloadLen = dv.getUint32(16, false);
   if (20 + payloadLen > bytes.length) throw new Error('Corrupt .gia: payload length exceeds file size');
-  // ALWAYS slice by payloadLen — parsing to end-of-file breaks on the trailer
+  // ALWAYS slice by payloadLen; parsing to end-of-file breaks on the trailer
   const payload = bytes.subarray(20, 20 + payloadLen);
 
   const objects = [];

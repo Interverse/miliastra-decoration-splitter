@@ -1,7 +1,7 @@
 // 3D Decoration Viewer: renders every decoration of the selected model as a
 // point at its world position (from js/gia-splitter.js decorationPoints()),
 // with screen-space picking, box selection, and camera tooling. Pure display
-// layer — it never touches the byte-preserving engine.
+// layer; it never touches the byte-preserving engine.
 //
 // Mouse map (left button is reserved for selection so it can't fight the
 // camera): LEFT click/drag = pick / box select, RIGHT drag = orbit,
@@ -453,7 +453,7 @@ export class DecorationViewer {
     // derived purely from the main camera's ROTATION: its position is the
     // camera's backward axis scaled to a fixed distance and its quaternion
     // is copied verbatim. That puts the world origin exactly at the inset's
-    // center every frame — panning (target offset), model transforms, frame
+    // center every frame, so panning (target offset), model transforms, frame
     // actions, and viewport resets cannot introduce any positional drift.
     this.gizmoCam.position.set(0, 0, 4.2).applyQuaternion(this.camera.quaternion);
     this.gizmoCam.quaternion.copy(this.camera.quaternion);

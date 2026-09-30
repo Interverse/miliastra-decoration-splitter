@@ -1,4 +1,4 @@
-// GilSession — UI-facing session over the byte-preserving .gil engine
+// GilSession: UI-facing session over the byte-preserving .gil engine
 // (js/gil/). Mirrors the role GiaSession plays for .gia files: it owns the
 // loaded document, exposes display views for the master/detail panels and the
 // 3D viewer, orchestrates the extraction operations, and keeps exact
@@ -153,7 +153,7 @@ export class GilSession {
 
   /**
    * 3D-viewer points for one parent's decorations: composed world positions
-   * (display-only — the write path recomputes transforms in the engine).
+   * (display-only; the write path recomputes transforms in the engine).
    * index matches the row index from decorations(parentId).
    */
   decorationPoints(parentId) {
@@ -178,7 +178,7 @@ export class GilSession {
 
   /**
    * Plan an extraction without modifying anything.
-   * mode 'decos': exactly the decorations in onlyDecoIds — their parents are
+   * mode 'decos': exactly the decorations in onlyDecoIds. Their parents are
    * derived from the level itself (every object whose decoration list holds a
    * selected id), so the operation follows the decoration selection wherever
    * it lives, independent of which parents are checked or viewed.
@@ -234,7 +234,7 @@ export class GilSession {
   /**
    * Move the decorations at `indices` (positions in the parent's current
    * list) so they sit, in their current relative order, starting at
-   * `targetIndex` — expressed in the list as it stands AFTER the moved
+   * `targetIndex`, expressed in the list as it stands AFTER the moved
    * entries are lifted out (same semantics as GiaSession.moveDecorations).
    *
    * Byte-level: only the parent's decoration-id list (component A/40 packed
@@ -266,7 +266,7 @@ export class GilSession {
     }
 
     // Rewrite the packed 501 list inside the parent's comp-40 component,
-    // container 5 — every other byte passes through verbatim. The container
+    // container 5; every other byte passes through verbatim. The container
     // raw is REPLACED (never edited in place) so undo snapshots stay valid.
     const snap = this._snapshot();
     const objCont = L.objectContainerField;
@@ -320,7 +320,7 @@ export class GilSession {
    * Rename every decoration in `decoIds` to the same (trimmed) name, as ONE
    * undoable operation on the shared snapshot stack. Byte-level: only the
    * name field (field 1) inside each decoration's type-1 component payload
-   * is replaced — unknown payload subfields and everything else in the file
+   * is replaced; unknown payload subfields and everything else in the file
    * survive verbatim. Decorations already carrying the name are skipped; a
    * missing name field or name component is created in the shape the engine
    * itself builds for extracted objects. Duplicate names are allowed (the
@@ -418,11 +418,11 @@ export class GilSession {
   /**
    * Move the decorations at `indices` (positions in the source parent's
    * current list) to the END of another world object's decoration list, in
-   * their current relative order — the .gil counterpart of
+   * their current relative order. This is the .gil counterpart of
    * GiaSession.moveDecorationsToModel.
    *
    * Byte-level: rewrites the two parents' packed id lists (component A/40
-   * field 501 — created on the target if absent, dropped on the source when
+   * field 501, created on the target if absent, dropped on the source when
    * emptied, matching the engine's own conventions) and each moved
    * decoration's parent back-reference (component A/40 field 502). Every
    * other byte survives. Rejects moves past MAX_DECORATIONS_PER_PARENT with
@@ -444,8 +444,8 @@ export class GilSession {
     const total = to.decorationIds.length + picked.length;
     if (total > MAX_DECORATIONS_PER_PARENT) {
       const e = new Error(
-        `A parent object can hold at most ${MAX_DECORATIONS_PER_PARENT} decorations — ` +
-          `this move would give "${to.name ?? toId}" ${total}.`
+        `A parent object can hold at most ${MAX_DECORATIONS_PER_PARENT} decorations. ` +
+          `This move would give "${to.name ?? toId}" ${total}.`
       );
       e.i18n = {
         key: 'gil.err.moveLimit',
@@ -643,7 +643,7 @@ export class GilSession {
 
   /**
    * Replace pos/rot/scale (payload fields 1/2/3) inside a decoration entry's
-   * transform component (list B type 1), preserving every other subfield —
+   * transform component (list B type 1), preserving every other subfield,
    * the same rewrite pattern the engine uses when building extracted world
    * objects. Creates the component if the decoration had none.
    * `ef` is the decoration entry's parsed field list, mutated in place.

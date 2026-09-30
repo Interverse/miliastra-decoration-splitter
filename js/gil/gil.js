@@ -1,5 +1,5 @@
 /**
- * gil.js — low-level .gil container + protobuf wire-format layer.
+ * gil.js: low-level .gil container + protobuf wire-format layer.
  *
  * A .gil file is:
  *   u32be totalLen                  (= file size - 4)

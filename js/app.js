@@ -1,4 +1,4 @@
-// GIA / GIL Splitter — one interactive editor for both file types.
+// GIA / GIL Splitter: one interactive editor for both file types.
 // .gia: import → pick a model → select Decoration entries (click / Ctrl /
 //   Shift) → Split selected → repeat as needed → download.
 // .gil: import → check parent objects → select attached decorations →
@@ -25,6 +25,8 @@ const els = {
   btnMoveUp: $('btn-move-up'), btnMoveDown: $('btn-move-down'),
   tableWrap: $('dec-table-wrap'),
   splitInfo: $('split-info'), btnSplit: $('btn-split'),
+  detailPanel: $('detail-panel'), groupInfo: $('group-info'),
+  btnUngroupSel: $('btn-ungroup-sel'), btnUngroupAll: $('btn-ungroup-all'),
   decBody: $('dec-table').querySelector('tbody'),
   exportBar: $('export-bar'), exModels: $('ex-models'), exSelected: $('ex-selected'),
   exSplits: $('ex-splits'), exSize: $('ex-size'), setName: $('set-name'),
@@ -65,7 +67,7 @@ function savePref(key, on) {
 }
 
 const state = {
-  mode: null,         // 'gia' | 'gil' — set when a file is loaded
+  mode: null,         // 'gia' | 'gil', set when a file is loaded
   sourceBytes: null,  // as loaded, for Reset
   fileName: '',
   session: null,      // GiaSession (.gia mode)
@@ -83,7 +85,7 @@ const state = {
     parentSel: new Set(), // checked parent-object ids (extraction targets)
     parentAnchor: null, // shift-range anchor in the object list
     active: null,       // focused parent id (its decorations fill the table)
-    decoSel: new Set(), // selected decoration ids — persists across parents
+    decoSel: new Set(), // selected decoration ids; persists across parents
     decoAnchor: null,   // shift-range anchor in the decoration table
     pointIds: [],       // viewer point index -> decoration id (focused parent)
     viewerParent: null, // parent the viewer currently shows
@@ -103,7 +105,7 @@ const state = {
 for (const l of LANGS) {
   const opt = document.createElement('option');
   opt.value = l.code;
-  opt.textContent = l.name; // native names — never translated
+  opt.textContent = l.name; // native names, never translated
   els.langSelect.appendChild(opt);
 }
 els.langSelect.addEventListener('change', () => setLanguage(els.langSelect.value));
@@ -151,7 +153,7 @@ els.fileInput.addEventListener('change', () => {
 
 // The file-import overlay reacts ONLY to external file drags. Internal UI
 // drags (decoration reordering) carry 'text/plain', not 'Files', and are
-// additionally flagged via drag.indices — they never touch the overlay.
+// additionally flagged via drag.indices, so they never touch the overlay.
 const isFileDrag = (e) =>
   !drag.indices && [...(e.dataTransfer?.types ?? [])].includes('Files');
 
@@ -196,7 +198,7 @@ async function loadFile(file) {
   } catch (err) {
     console.error(err);
     if (isGil) {
-      // .gil container errors are descriptive — show them in the dialog
+      // .gil container errors are descriptive, so show them in the dialog
       showError(
         `<p><b>${escapeHtml(t('gil.load.failTitle', { name: file.name }))}</b></p>` +
         `<p class="e">${escapeHtml(err.message)}</p>` +
@@ -243,6 +245,7 @@ function startSession(session) {
 function startGilSession(session) {
   setMode('gil');
   state.session = null;
+  els.detailPanel.classList.remove('group-view');
   const g = state.gil;
   g.session = session;
   g.parentSel = new Set();
@@ -301,6 +304,7 @@ function renderMeta() {
 
 function renderModels(highlightId = null) {
   const models = state.session.models;
+  const flash = new Set(Array.isArray(highlightId) ? highlightId : highlightId == null ? [] : [highlightId]);
   els.modelCount.textContent = num(models.length);
   els.modelList.textContent = '';
   const frag = document.createDocumentFragment();
@@ -310,11 +314,11 @@ function renderModels(highlightId = null) {
     row.className = 'model-row'
       + (m.id === state.currentModel ? ' active' : '')
       + (exported ? '' : ' excluded')
-      + (m.id === highlightId ? ' flash' : '');
+      + (flash.has(m.id) ? ' flash' : '');
     row.dataset.uid = m.uid;
     row.addEventListener('click', () => selectModel(m.id));
 
-    // export inclusion — independent from which model is open for viewing
+    // export inclusion, independent from which model is open for viewing
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.className = 'model-export';
@@ -331,7 +335,7 @@ function renderModels(highlightId = null) {
     const name = document.createElement('span');
     name.className = 'model-name';
     name.textContent = m.name || t('model.unnamed');
-    name.title = `${m.name} — ${t('rename.tip')}`;
+    name.title = `${m.name} · ${t('rename.tip')}`;
     name.addEventListener('dblclick', (e) => {
       e.stopPropagation();
       renameModelInline(name, m.id);
@@ -343,12 +347,13 @@ function renderModels(highlightId = null) {
       if (!drag.indices || m.id === state.currentModel) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      const overflow = m.count + drag.indices.length > MAX_DECORATIONS_PER_MODEL;
+      // entity groups hold no Decoration list of their own
+      const overflow = m.isGroup || m.count + drag.indices.length > MAX_DECORATIONS_PER_MODEL;
       row.classList.add(overflow ? 'drop-invalid' : 'drop-target');
     });
     row.addEventListener('dragleave', () => row.classList.remove('drop-target', 'drop-invalid'));
     row.addEventListener('drop', (e) => {
-      if (!drag.indices || m.id === state.currentModel) return;
+      if (!drag.indices || m.id === state.currentModel || m.isGroup) return;
       e.preventDefault();
       e.stopPropagation();
       const indices = drag.indices;
@@ -373,10 +378,18 @@ function renderModels(highlightId = null) {
       tag.title = t('tag.graphTip');
       badges.appendChild(tag);
     }
+    if (m.isGroup) {
+      const tag = document.createElement('span');
+      tag.className = 'tag-group';
+      tag.textContent = t('tag.group');
+      tag.title = t('tag.groupTip');
+      badges.appendChild(tag);
+    }
     const count = document.createElement('span');
     count.className = 'model-count';
-    count.textContent = num(m.count);
-    count.title = tn('model.countTip', m.count);
+    // a group's pill counts its member entities, not Decoration entries
+    count.textContent = num(m.isGroup ? m.memberCount : m.count);
+    count.title = m.isGroup ? tn('model.membersTip', m.memberCount) : tn('model.countTip', m.count);
     badges.appendChild(count);
 
     row.append(cb, name, badges);
@@ -467,6 +480,8 @@ function giaSelectionTotals() {
 
 function renderDetail() {
   const model = state.session.models[state.currentModel];
+  els.detailPanel.classList.toggle('group-view', !!model.isGroup);
+  if (model.isGroup) return renderGroupDetail(model);
   const decs = state.session.decorations(state.currentModel);
 
   els.detailName.textContent = model.name || t('model.unnamed');
@@ -504,12 +519,12 @@ function renderDetail() {
 
     const tdIdx = document.createElement('td');
     tdIdx.className = 'num muted';
-    tdIdx.textContent = d.index; // position identifier — never locale-formatted
+    tdIdx.textContent = d.index; // position identifier, never locale-formatted
 
     const tdName = document.createElement('td');
     tdName.className = 'dec-name';
     if (d.name) tdName.textContent = d.name;
-    else { tdName.textContent = '—'; tdName.classList.add('muted'); }
+    else { tdName.textContent = '-'; tdName.classList.add('muted'); }
     tdName.title = t('rename.tip');
     tdName.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -521,8 +536,8 @@ function renderDetail() {
 
     const tdId = document.createElement('td');
     tdId.className = 'num dec-id';
-    if (d.guid != null) tdId.textContent = d.guid; // identifier — no grouping
-    else { tdId.textContent = '—'; tdId.classList.add('muted'); }
+    if (d.guid != null) tdId.textContent = d.guid; // identifier, so no digit grouping
+    else { tdId.textContent = '-'; tdId.classList.add('muted'); }
 
     tr.append(tdDrag, tdCheck, tdIdx, tdName, tdId);
     tr.addEventListener('click', (e) => onRowClick(d.index, e));
@@ -534,14 +549,93 @@ function renderDetail() {
   syncSelection();
 }
 
+// Entity-group view: the table lists the group's member entities (position
+// in the group, name with its Decoration count, entity id). Rows share the
+// toggle/range selection machinery with the Decoration table; the ops bar
+// offers "Ungroup selected" / "Ungroup all" instead of splitting.
+function renderGroupDetail(model) {
+  const members = state.session.groupMembers(state.currentModel);
+  els.detailName.textContent = model.name || t('model.unnamed');
+  els.detailName.title = t('rename.tip');
+  els.detailName.ondblclick = () => renameModelInline(els.detailName, state.currentModel);
+  els.detailCount.textContent = tn('group.members', members.length);
+
+  els.decBody.textContent = '';
+  state.rows = [];
+  const frag = document.createDocumentFragment();
+  for (const x of members) {
+    const tr = document.createElement('tr');
+    tr.dataset.index = x.index;
+
+    const tdDrag = document.createElement('td');
+    tdDrag.className = 'col-drag';
+
+    const tdCheck = document.createElement('td');
+    tdCheck.className = 'col-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.tabIndex = -1;
+    cb.addEventListener('click', (e) => { e.stopPropagation(); toggleRow(x.index); });
+    tdCheck.appendChild(cb);
+
+    const tdIdx = document.createElement('td');
+    tdIdx.className = 'num muted';
+    tdIdx.textContent = x.index;
+
+    const tdName = document.createElement('td');
+    tdName.className = 'dec-name';
+    if (x.name) tdName.textContent = x.name;
+    else { tdName.textContent = '-'; tdName.classList.add('muted'); }
+    const count = document.createElement('span');
+    count.className = 'member-count';
+    count.textContent = num(x.count);
+    count.title = tn('model.countTip', x.count);
+    tdName.appendChild(count);
+    if (x.isGroup) {
+      const tag = document.createElement('span');
+      tag.className = 'tag-group';
+      tag.textContent = t('tag.group');
+      tdName.appendChild(tag);
+    }
+    if (x.hasGraph) {
+      const tag = document.createElement('span');
+      tag.className = 'tag-graph';
+      tag.textContent = t('tag.graph');
+      tdName.appendChild(tag);
+    }
+
+    const tdId = document.createElement('td');
+    tdId.className = 'num dec-id';
+    tdId.textContent = x.guid; // identifier, so no digit grouping
+
+    tr.append(tdDrag, tdCheck, tdIdx, tdName, tdId);
+    tr.addEventListener('click', (e) => onRowClick(x.index, e));
+    state.rows.push(tr);
+    frag.appendChild(tr);
+  }
+  els.decBody.appendChild(frag);
+  updateViewerData();
+  syncSelection();
+}
+
 // push the current model's points into the 3D viewer; the camera re-frames
-// only when the viewed model actually changed
+// only when the viewed model actually changed. A group shows one point per
+// member entity (at its world position) instead of decorations.
 function updateViewerData() {
   if (!state.viewer) return;
   const frame = state.viewerModel !== state.currentModel;
   state.viewerModel = state.currentModel;
-  state.viewer.setData(state.session.decorationPoints(state.currentModel), { frame });
+  state.viewer.setData(giaViewerPoints(), { frame });
   applySearch();
+}
+
+// points shown for the current .gia model: its decorations, or, for an
+// entity group, its member entities
+function giaViewerPoints() {
+  const model = state.session.models[state.currentModel];
+  return model?.isGroup
+    ? state.session.groupMemberPoints(state.currentModel)
+    : state.session.decorationPoints(state.currentModel);
 }
 
 function applySearch() {
@@ -552,8 +646,8 @@ function applySearch() {
   }
 }
 
-// Toggle-based selection: a click toggles just that row — it never resets
-// the rest of the selection — and Shift+click INVERTS every row between the
+// Toggle-based selection: a click toggles just that row (it never resets
+// the rest of the selection) and Shift+click INVERTS every row between the
 // anchor and the click (anchor excluded: its click already toggled it). So
 // toggling a row on and shift-clicking selects the whole range, toggling it
 // off and shift-clicking deselects the whole range.
@@ -607,16 +701,37 @@ function syncSelection() {
     tr.querySelector('input').checked = sel;
   }
   const n = state.sel.size;
-  els.btnMoveUp.disabled = n === 0;
-  els.btnMoveDown.disabled = n === 0;
-  els.btnRenameSel.disabled = n === 0;
-  els.btnSplit.disabled = n === 0;
+  const model = state.session.models[state.currentModel];
   if (state.viewer) {
     state.viewer.setSelection(state.sel);
     updateViewerStats();
   }
+  if (model?.isGroup) {
+    // member rows: only ungrouping applies (no reorder/rename/split)
+    els.btnMoveUp.disabled = els.btnMoveDown.disabled = els.btnRenameSel.disabled = true;
+    els.btnSplit.disabled = true;
+    els.btnUngroupSel.disabled = n === 0;
+    els.btnUngroupSel.textContent = n ? t('group.buttonN', { n: num(n) }) : t('group.button');
+    if (n === 0) {
+      els.groupInfo.innerHTML = escapeHtml(t('group.none'));
+      els.groupInfo.classList.remove('armed');
+    } else {
+      els.groupInfo.innerHTML = t('group.info', {
+        n: num(n),
+        total: num(state.rows.length),
+        name: escapeHtml(model.name || t('model.unnamed')),
+      });
+      els.groupInfo.classList.add('armed');
+    }
+    updateGiaSelDots();
+    return;
+  }
+  els.btnMoveUp.disabled = n === 0;
+  els.btnMoveDown.disabled = n === 0;
+  els.btnRenameSel.disabled = n === 0;
+  els.btnSplit.disabled = n === 0;
   els.btnSplit.textContent = n ? t('split.buttonN', { n: num(n) }) : t('split.button');
-  // selections parked in other models are preserved — surface them so
+  // selections parked in other models are preserved; surface them so
   // switching the viewed model clearly never discards work
   const totals = giaSelectionTotals();
   const across = totals.total > n
@@ -676,11 +791,15 @@ function onDragStart(i, e) {
     return;
   }
   els.modelList.classList.add('dec-drag'); // other models light up as drop targets
-  // immediately dim models that cannot accept this many entries
+  // immediately dim models that cannot accept this many entries (and entity
+  // groups, which hold no Decoration list at all)
   const models = state.session.models;
   [...els.modelList.querySelectorAll('.model-row')].forEach((row, i) => {
     const m = models[i];
-    if (m && m.id !== state.currentModel
+    if (m && m.id !== state.currentModel && m.isGroup) {
+      row.classList.add('drop-full');
+      row.title = t('group.noDropTip');
+    } else if (m && m.id !== state.currentModel
         && m.count + drag.indices.length > MAX_DECORATIONS_PER_MODEL) {
       row.classList.add('drop-full');
       row.title = t('err.moveLimit', {
@@ -797,7 +916,7 @@ function ensureViewer() {
   });
 }
 
-// Point indices currently selected, for the viewer tools — row indices in
+// Point indices currently selected, for the viewer tools: row indices in
 // .gia mode, the focused parent's selected decorations in .gil mode.
 function viewerSelIndices() {
   if (state.mode !== 'gil') return state.sel;
@@ -811,7 +930,7 @@ function updateViewerStats() {
   const gil = state.mode === 'gil';
   const pts = gil
     ? state.gil.session.decorationPoints(state.gil.viewerParent ?? -1)
-    : state.session.decorationPoints(state.currentModel);
+    : giaViewerPoints();
   const sel = viewerSelIndices();
   const n = sel.size;
   els.vStats.textContent = `${num(n)} / ${num(pts.length)}`;
@@ -970,6 +1089,7 @@ function renameModelInline(el, modelId) {
 function moveSelectionToModel(targetId) {
   const indices = drag.indices ?? [...state.sel];
   if (!indices.length || targetId === state.currentModel) return;
+  if (state.session.models[targetId]?.isGroup) return; // groups hold no Decoration list
   try {
     const res = state.session.moveDecorationsToModel(state.currentModel, indices, targetId);
     if (!res) return;
@@ -1004,6 +1124,42 @@ els.btnSplit.addEventListener('click', () => {
   }
 });
 
+// ---------- ungroup (entity groups) ----------
+
+// Move member entities out of the viewed entity group. `all` takes every
+// member (and removes the group); otherwise the selected rows leave and the
+// group stays with the rest. Freed members appear as models right after
+// the group and default to exported.
+function doUngroup(all) {
+  const model = state.session.models[state.currentModel];
+  if (!model?.isGroup) return;
+  const members = state.session.groupMembers(state.currentModel);
+  const guids = all ? null : members.filter((x) => state.sel.has(x.index)).map((x) => x.guid);
+  if (!all && !guids.length) return;
+  try {
+    const res = state.session.ungroup(state.currentModel, guids);
+    const models = state.session.models;
+    for (const id of res.newIds) state.exportSel.add(models[id].uid);
+    if (res.removedGroup) {
+      state.exportSel.delete(model.uid);
+      state.selByModel.delete(model.uid);
+      state.currentModel = res.newIds[0] ?? 0; // the group is gone, so show its first member
+    }
+    state.sel = new Set();
+    state.anchor = null;
+    state.viewerModel = -1;
+    renderModels(res.newIds);
+    renderDetail();
+    renderExport();
+    toast(tn('toast.ungrouped', res.count, { name: model.name }), true);
+  } catch (err) {
+    console.error(err);
+    toast(errMsg(err, 'err.ungroupFail'));
+  }
+}
+els.btnUngroupSel.addEventListener('click', () => doUngroup(false));
+els.btnUngroupAll.addEventListener('click', () => doUngroup(true));
+
 // ---------- export ----------
 
 function renderExport() {
@@ -1021,7 +1177,7 @@ function renderExport() {
   els.exModels.innerHTML = s.changed
     ? `${num(s.meta.modelsBefore)}<span class="arrow">→</span>${num(now)}`
     : num(now);
-  els.exSplits.textContent = num(s.splitCount);
+  els.exSplits.textContent = num(s.splitCount + s.ungroupCount);
   els.exSelected.textContent = `${num(nSel)}/${num(now)}`;
   els.exSelected.classList.toggle('partial', partial);
 
@@ -1034,7 +1190,7 @@ function renderExport() {
   els.exportCount.classList.toggle('warn', nSel === 0);
 
   if (nSel === 0) {
-    els.exSize.textContent = '—';
+    els.exSize.textContent = '-';
     els.btnDownload.disabled = true;
     els.btnDownload.textContent = t('export.download');
   } else {
@@ -1126,7 +1282,7 @@ function effectiveGilParent() {
 
 // Decoration selection is INDEPENDENT of parent selection: switching or
 // unchecking parents never discards it. Only selections that stopped
-// existing are dropped — parents removed/emptied by an operation, and
+// existing are dropped: parents removed/emptied by an operation, and
 // decorations that were extracted (or vanished through undo/redo).
 function pruneGilSelection() {
   const g = state.gil;
@@ -1143,7 +1299,7 @@ function pruneGilSelection() {
 
 // Parents that hold at least one selected decoration (for the summary line
 // and the sidebar indicator dots). Matched against the parents' decoration
-// lists — the authoritative link — not the decorations' back-references.
+// lists (the authoritative link), not the decorations' back-references.
 function gilParentsWithSelection() {
   const g = state.gil;
   const out = new Set();
@@ -1435,12 +1591,12 @@ function renderGilDetail() {
 
     const tdIdx = document.createElement('td');
     tdIdx.className = 'num muted';
-    tdIdx.textContent = d.index; // position identifier — never locale-formatted
+    tdIdx.textContent = d.index; // position identifier, never locale-formatted
 
     const tdName = document.createElement('td');
     tdName.className = 'dec-name';
     if (d.name) tdName.textContent = d.name;
-    else { tdName.textContent = '—'; tdName.classList.add('muted'); }
+    else { tdName.textContent = '-'; tdName.classList.add('muted'); }
     tdName.title = t('rename.tip');
     tdName.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -1449,11 +1605,11 @@ function renderGilDetail() {
 
     const tdId = document.createElement('td');
     tdId.className = 'num dec-id';
-    tdId.textContent = d.id ?? '—';
+    tdId.textContent = d.id ?? '-';
 
     const tdPrefab = document.createElement('td');
     tdPrefab.className = 'num dec-id';
-    tdPrefab.textContent = d.prefabId ?? '—';
+    tdPrefab.textContent = d.prefabId ?? '-';
     tdPrefab.title = t('gil.col.prefabTip');
 
     const tdColl = document.createElement('td');
@@ -1488,8 +1644,8 @@ function toggleGilDeco(id) {
 }
 
 // Toggle-based selection, matching the .gia table: a click toggles just
-// that row — it never resets the rest of the selection (which may span
-// other parent objects) — and Shift+click INVERTS every row between the
+// that row, never resetting the rest of the selection (which may span
+// other parent objects), and Shift+click INVERTS every row between the
 // anchor and the click over the table's current (possibly sorted) order
 // (anchor excluded: its click already toggled it). Toggle on + shift-click
 // selects the range; toggle off + shift-click deselects it.
@@ -1601,7 +1757,7 @@ function renderGilOps() {
   const nSel = g.decoSel.size;
   const selParents = gilParentsWithSelection();
 
-  // "Separate Selected" follows the decoration selection alone — it extracts
+  // "Separate Selected" follows the decoration selection alone: it extracts
   // every selected decoration wherever it lives, checked parents or not.
   els.btnGilSplitSel.disabled = nSel === 0;
   els.btnGilSplitSel.title = nSel === 0
@@ -1612,7 +1768,7 @@ function renderGilOps() {
     ? t('gil.tip.needParentSel')
     : t('gil.sum.parents', { n: num(totalDecos), k: num(parents.length) });
 
-  // global selection summary — makes clear that switching the viewed parent
+  // global selection summary; makes clear that switching the viewed parent
   // never discards selections ("27 decorations selected across 4 parents")
   const lines = [];
   if (parents.length) lines.push(t('gil.sum.parentsSel', { n: num(parents.length) }));
@@ -1630,7 +1786,7 @@ function renderGilOps() {
 let splitting = false;
 
 // mode 'decos': exactly the decorations selected in the table, wherever they
-// live — the selection spans parents and survives viewing/checkbox changes.
+// live. The selection spans parents and survives viewing/checkbox changes.
 // mode 'parents': every decoration of the checked parent objects.
 async function doGilSplit(mode) {
   const g = state.gil;
@@ -2008,7 +2164,7 @@ function initPanelResize() {
     split.addEventListener('pointermove', (e) => {
       if (!split.classList.contains('dragging')) return;
       // the models divider sits on the panel's right edge, the viewer divider
-      // on its left — dragging outward grows the respective panel
+      // on its left, so dragging outward grows the respective panel
       const delta = split.dataset.panel === 'models' ? e.clientX - startX : startX - e.clientX;
       p.apply(Math.min(p.max(), Math.max(p.min, startW + delta)));
       state.viewer?.resize();

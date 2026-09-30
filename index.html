@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GIA / GIL Splitter</title>
-  <meta name="description" content="Interactive .gia and .gil splitting utility: split a .gia model's Decoration entries into new models, or extract a .gil level's attached decorations into standalone world objects. Runs entirely in your browser.">
+  <meta name="description" content="Split a .gia model's Decoration entries into new models, or pull a .gil level's attached decorations out into standalone world objects. Runs in your browser, nothing is uploaded.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>✂️</text></svg>">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">
@@ -105,6 +105,12 @@
             <button id="btn-split" class="btn primary" disabled></button>
           </div>
 
+          <div id="group-bar" class="gia-only">
+            <span id="group-info" class="split-info"></span>
+            <button id="btn-ungroup-all" class="btn ghost" data-i18n="group.all" data-i18n-title="group.allTip"></button>
+            <button id="btn-ungroup-sel" class="btn primary" disabled></button>
+          </div>
+
           <fieldset id="gil-ops" class="gil-only">
             <legend data-i18n="gil.panel.extraction"></legend>
             <div class="gil-ops-row">
@@ -137,8 +143,9 @@
               </thead>
               <tbody></tbody>
             </table>
-            <p class="hint table-hint gia-only" data-i18n="table.hint"></p>
-            <p class="hint table-hint gia-only" data-i18n="reorder.hint"></p>
+            <p class="hint table-hint gia-only dec-hint" data-i18n="table.hint"></p>
+            <p class="hint table-hint gia-only dec-hint" data-i18n="reorder.hint"></p>
+            <p class="hint table-hint gia-only group-hint" data-i18n="group.hint"></p>
             <p class="hint table-hint gil-only" data-i18n="gil.table.hint"></p>
           </div>
         </section>

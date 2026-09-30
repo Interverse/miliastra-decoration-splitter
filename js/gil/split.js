@@ -1,5 +1,5 @@
 /**
- * split.js — the decoration-extraction operation.
+ * split.js: the decoration-extraction operation.
  *
  * Converts decorations (level field 27 entries) owned by selected parent
  * objects into standalone world objects (level field 5 entries), composing the
@@ -13,7 +13,7 @@
  *   worldScale = parentScale ⊙ localScale
  * Rotations are Euler angles in degrees applied in Unity order (Z, then X,
  * then Y). All reference parents have identity rotation and unit scale, where
- * this reduces to worldPos = parentPos + localPos — which matches the samples
+ * this reduces to worldPos = parentPos + localPos, which matches the samples
  * exactly. The general composition follows the engine convention (Unity).
  * Component-wise scale composition is exact unless a parent combines
  * non-uniform scale with rotated children (which introduces shear no single
@@ -154,7 +154,7 @@ export function makeParentComposer(parent) {
 
 /**
  * Compose parent and local {pos, rot, scale}.
- * Returns {pos, rot, scale, shearRisk}. (shearRisk is informational — tiny
+ * Returns {pos, rot, scale, shearRisk}. (shearRisk is informational; tiny
  * flattening differences are expected and not surfaced as warnings.)
  */
 export function composeTransforms(parent, local) {
@@ -183,7 +183,7 @@ function compB(type, payloadRaw) {
 const EMPTY = new Uint8Array(0);
 const TEXT = new TextEncoder();
 
-// Constant component fields shared by every built world object — encoded once
+// Constant component fields shared by every built world object, encoded once
 // at module load instead of per decoration (encodeMessage copies bytes, so
 // sharing the field objects is safe).
 const C_A13 = compA(13, encodeMessage([varintField(4, 0xffffffff)]));
@@ -259,7 +259,7 @@ const PREFAB_ONE = varintField(2, 1);
  * them (codes: objectNotFound, noDecorations, parentNoTransform,
  * decoMissing, decoOtherParent, decoNoTransform, scaleExceeds,
  * parentRefsDecos).
- * opts.onlyDecoIds: Set — when given, only these decorations are extracted;
+ * opts.onlyDecoIds: Set. When given, only these decorations are extracted;
  * the rest stay attached to their parents.
  */
 export function planSplit(level, parentIds, opts = {}) {
@@ -385,7 +385,7 @@ function parentReferencesDecoIds(parent, idSet) {
  */
 function scanRegion(buf, start, end, depth, idSet, hits, selfId) {
   if (depth > 8) return false;
-  // validation pass — structure only
+  // validation pass: structure only
   let pos = start;
   while (pos < end) {
     let key = 0;
@@ -427,7 +427,7 @@ function scanRegion(buf, start, end, depth, idSet, hits, selfId) {
       return false;
     }
   }
-  // walk pass — count matches, recurse into nested messages
+  // walk pass: count matches, recurse into nested messages
   pos = start;
   while (pos < end) {
     let key = 0;
@@ -707,7 +707,7 @@ export function buildWorldObject(deco, world, newId, opts = {}) {
   fields.push(C_A62);
   fields.push(C_A19);
   fields.push(C_A52);
-  // Decoration components of types not in the template — carried over as-is.
+  // Decoration components of types not in the template are carried over as-is.
   for (const [type, c] of decoA) {
     if (!consumedA.has(type)) fields.push(msgField(5, c.fields));
   }
@@ -811,7 +811,7 @@ export function buildWorldObject(deco, world, newId, opts = {}) {
  * removedParents}.
  * Call planSplit first; this assumes entries are valid.
  * opts.collision: see buildWorldObject.
- * opts.removeParent: delete parents after extraction — but only those ids in
+ * opts.removeParent: delete parents after extraction, but only those ids in
  * opts.removableParents (from checkParentRemoval); others keep their entry
  * (minus the decoration list) so no references dangle.
  * opts.onProgress(done, total): called periodically during the build phase.

@@ -130,7 +130,7 @@ console.log('== split: Level With 2 Decorations');
   check(parents.length === 2, 'two parents found');
   check(level.decorations.length === 6, '6 decorations found');
 
-  // Split only the second parent (1077936138) — its standalone counterparts
+  // Split only the second parent (1077936138); its standalone counterparts
   // live in the 1-Decoration file (Shield x2 + Polearm).
   const plan = planSplit(level, [1077936138]);
   check(plan.errors.length === 0, 'plan has no errors');
@@ -213,7 +213,7 @@ console.log('== split: Level With 1 Decoration Rotate Zoom Example');
   const summary = await applySplit(level, plan);
   check(summary.created.length === 1, 'one world object created');
 
-  // The game allocated 1077936143 for this exact operation — we must match:
+  // The game allocated 1077936143 for this exact operation, and we must match:
   // ids stay in the 0x4040xxxx space, unaffected by the registry's special
   // 0x4140xxxx entry.
   check(summary.created[0].id === 1077936143, `allocated id matches the game's (1077936143), got ${summary.created[0].id}`);
@@ -620,7 +620,7 @@ console.log('== scale-limit warning');
     const tPlan = performance.now() - t;
     check(plan.errors.length === 0, `planSplit ok: ${plan.entries.length} entries in ${tPlan.toFixed(0)} ms`);
     check(tPlan < 2000, `planSplit fast enough (${tPlan.toFixed(0)} ms < 2000 ms)`);
-    // warnings: only zoom warnings (and structural ones) — no shear noise
+    // warnings: only zoom warnings (and structural ones), no shear noise
     const codes = new Set(plan.warnings.map((w) => w.code));
     check(!codes.has('shearRisk'), 'no shear/position/rotation warnings emitted');
     const scaleWarnings = plan.warnings.filter((w) => w.code === 'scaleExceeds');

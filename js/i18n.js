@@ -64,12 +64,12 @@ function interpolate(s, params) {
   return s;
 }
 
-// t("key", { n: 5 }) — interpolates {n}; falls back key-by-key to English.
+// t("key", { n: 5 }) interpolates {n}; falls back key-by-key to English.
 export function t(key, params) {
   return interpolate(dict[key] ?? en[key] ?? key, params);
 }
 
-// tn("key", 5, params) — plural-aware t(): resolves "key.<category>" for the
+// tn("key", 5, params) is the plural-aware t(): resolves "key.<category>" for the
 // active locale's plural rules, falling back to "key.other", then English.
 // {n} is pre-formatted with the locale's number format.
 let pr = new Intl.PluralRules('en');
@@ -121,7 +121,7 @@ export function onLangChange(fn) {
 }
 
 // Apply a language without persisting it (load-time detection, cross-tab
-// sync). Only setLanguage() — an explicit user choice — writes storage.
+// sync). Only setLanguage(), an explicit user choice, writes storage.
 async function applyLanguage(code) {
   if (!LANGS.some((l) => l.code === code)) code = 'en';
   if (!dicts[code]) {
@@ -150,7 +150,7 @@ export async function setLanguage(code) {
 }
 
 // Pick the saved language, or the closest match to the browser language.
-// Invalid stored values are ignored (not deleted) — another toolkit site
+// Invalid stored values are ignored (not deleted), since another toolkit site
 // may understand them.
 export function detectLanguage() {
   try {

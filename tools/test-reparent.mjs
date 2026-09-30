@@ -21,7 +21,7 @@ const load = (f) => new Uint8Array(readFileSync(join(REF, f)));
 
 let failures = 0;
 const check = (label, ok, detail = '') => {
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `: ${detail}` : ''}`);
   if (!ok) failures++;
 };
 const eqBytes = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -44,7 +44,7 @@ const fmtW = (w) => `pos(${w.pos.x.toFixed(4)},${w.pos.y.toFixed(4)},${w.pos.z.t
 // ============================================================ .gil
 console.log('== .gil: reparenting across a rotated + zoomed parent');
 {
-  // The rotate-zoom file's parent carries rotation AND non-unit zoom — the
+  // The rotate-zoom file's parent carries rotation AND non-unit zoom, the
   // hardest verified case (its extraction output is bit-exact vs the game).
   const bytes = load('Level With 1 Decoration Rotate Zoom Example.gil');
   const s = new GilSession(bytes);

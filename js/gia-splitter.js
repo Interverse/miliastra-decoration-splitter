@@ -1,4 +1,4 @@
-// Interactive .gia Decoration-list splitter — pure byte-level protobuf surgery.
+// Interactive .gia Decoration-list splitter: pure byte-level protobuf surgery.
 //
 // GiaSession wraps a loaded .gia and supports repeated, user-directed splits:
 // any subset of a model's Decoration entries can be moved into a newly created
@@ -7,8 +7,8 @@
 //   - Decoration entries are copied verbatim regardless of type or contents;
 //     only the parent-model reference (component 4/40 field 502) is rewritten
 //     for entries that move to a new model.
-//   - New models are byte-copies of the source model — all non-Decoration
-//     data is carried over — except fields that must remain unique: they get
+//   - New models are byte-copies of the source model (all non-Decoration
+//     data is carried over) except fields that must remain unique: they get
 //     a fresh guid and name, and only the moved decorations' references.
 //     A node-graph binding, which may belong to one model only, stays with
 //     the source model.
@@ -126,7 +126,7 @@ const encPacked = (nums) => {
 };
 
 // f32 vec3 message {1:x, 2:y, 3:z}; missing components default to `dflt`
-// (0 for positions/rotations, 1 for scale — the game omits zero components)
+// (0 for positions/rotations, 1 for scale; the game omits zero components)
 function readVec3F(b, dflt = 0) {
   const v = { x: dflt, y: dflt, z: dflt };
   for (const it of parseMsg(b)) {
@@ -151,16 +151,21 @@ function encVec3F(v) {
   return encodeMsg(items);
 }
 
-// identity message {2: classDomain, 4: guid}
+// identity / reference message {2: classDomain, 3: kind, 4: guid}
+// kinds seen: 1 = prefab (class-1 entry), 2 = entity (class-3 entry),
+// 14 = decoration (class-28 entry); node-graph refs use classDomain 5
+const KIND_DECORATION = 14;
 function parseIdentity(b) {
-  const id = { classDomain: null, guid: null };
+  const id = { classDomain: null, kind: null, guid: null };
   for (const it of parseMsg(b)) {
     if (it.wire !== 0) continue;
     if (it.field === 2) id.classDomain = Number(it.val);
+    else if (it.field === 3) id.kind = Number(it.val);
     else if (it.field === 4) id.guid = Number(it.val);
   }
   return id;
 }
+const isDecorationRef = (id) => id.classDomain === 1 && id.kind === KIND_DECORATION && id.guid != null;
 
 function rewriteIdentityGuid(b, guid) {
   return encodeMsg(parseMsg(b).map((it) =>
@@ -172,7 +177,7 @@ function rewriteIdentityGuid(b, guid) {
 // model (object) entry: guid, name, canonical decoration list, other refs,
 // and (for the 3D viewer) the model's world position + zoom
 function summarizeModel(entryBody) {
-  const s = { guid: null, name: '', packed: null, refDecGuids: [], otherRefGuids: [], pos: null, rot: null, zoom: null, wrapper: 11 };
+  const s = { guid: null, name: '', packed: null, refDecGuids: [], otherRefGuids: [], children: [], pos: null, rot: null, zoom: null, wrapper: 11 };
   const items = parseMsg(entryBody);
   const layout = modelLayout(items);
   s.wrapper = layout.wrapper;
@@ -181,8 +186,10 @@ function summarizeModel(entryBody) {
     if (it.field === 1) s.guid = parseIdentity(it.val).guid;
     else if (it.field === 2) {
       const id = parseIdentity(it.val);
-      if (id.classDomain === 1 && id.guid != null) s.refDecGuids.push(id.guid);
-      else if (id.guid != null) s.otherRefGuids.push(id.guid); // e.g. node graphs
+      if (isDecorationRef(id)) s.refDecGuids.push(id.guid);
+      else if (id.classDomain !== 1 && id.guid != null) s.otherRefGuids.push(id.guid); // e.g. node graphs
+      // other domain-1 refs (prefab / entity links of groups and entities) are
+      // neither decorations nor graphs; they pass through untouched
     } else if (it.field === 3) s.name = utf8.decode(it.val);
     else if (it.field === layout.wrapper) {
       for (const p of parseMsg(it.val)) {
@@ -191,11 +198,32 @@ function summarizeModel(entryBody) {
           if (c.wire !== 2) continue;
           if (c.field === layout.groupA) {
             const comp = parseMsg(c.val);
-            if (!comp.some((x) => x.field === 1 && x.wire === 0 && Number(x.val) === 40)) continue;
-            for (const body of comp) {
-              if (body.wire !== 2) continue;
-              for (const f of parseMsg(body.val)) {
-                if (f.field === 501 && f.wire === 2) s.packed = readPacked(f.val);
+            const type = comp.find((x) => x.field === 1 && x.wire === 0);
+            const t = type ? Number(type.val) : null;
+            if (t === 40) {
+              for (const body of comp) {
+                if (body.wire !== 2) continue;
+                for (const f of parseMsg(body.val)) {
+                  if (f.field === 501 && f.wire === 2) s.packed = readPacked(f.val);
+                }
+              }
+            } else if (t === 61) {
+              // entity-group child list: {1: prefabGuid, 2: offset, 3: rot,
+              // 5: guid, 6: index, 7: entityGuid} per member (field 7 is
+              // present on the group entity, absent on its prefab twin)
+              for (const body of comp) {
+                if (body.wire !== 2) continue;
+                for (const r of parseMsg(body.val)) {
+                  if (r.field !== 1 || r.wire !== 2) continue;
+                  const rec = { prefabGuid: null, entityGuid: null, index: null };
+                  for (const f of parseMsg(r.val)) {
+                    if (f.wire !== 0) continue;
+                    if (f.field === 1) rec.prefabGuid = Number(f.val);
+                    else if (f.field === 6) rec.index = Number(f.val);
+                    else if (f.field === 7) rec.entityGuid = Number(f.val);
+                  }
+                  s.children.push(rec);
+                }
               }
             }
           } else if (c.field === layout.groupB) {
@@ -281,11 +309,11 @@ function rebuildModelEntry(entryBody, { chunk, allDecSet, isClone, rename = fals
   for (const it of items) {
     if (it.field !== 2 || it.wire !== 2) continue;
     const id = parseIdentity(it.val);
-    if (id.classDomain === 1 && id.guid != null) refByGuid.set(id.guid, it);
+    if (isDecorationRef(id)) refByGuid.set(id.guid, it);
   }
 
   // decorations received from another model have no ref bytes in this
-  // entry — synthesize the standard {2:1, 3:14, 4:guid} reference
+  // entry, so synthesize the standard {2:1, 3:14, 4:guid} reference
   const refFor = (g) => refByGuid.get(g) ?? { field: 2, wire: 2, val: encodeMsg([
     { field: 2, wire: 0, val: 1n },
     { field: 3, wire: 0, val: 14n },
@@ -306,7 +334,7 @@ function rebuildModelEntry(entryBody, { chunk, allDecSet, isClone, rename = fals
       }
     } else if (it.field === 2 && it.wire === 2) {
       const id = parseIdentity(it.val);
-      if (id.classDomain === 1 && allDecSet.has(id.guid)) {
+      if (isDecorationRef(id) && allDecSet.has(id.guid)) {
         if (!refsEmitted) {
           refsEmitted = true;
           for (const g of chunk) out.push(refFor(g));
@@ -380,7 +408,7 @@ function rebuildPrefabBody(prefabBody, { chunk, isClone, rename = false, guid, n
 
 // Rewrite a Decoration entry's parent-model reference (component 4/40 field
 // 502), its name (entry field 3 + component 4/1), and/or its local transform
-// (component 5/1 body fields 1/2/3 — recalculated on cross-model moves so
+// (component 5/1 body fields 1/2/3, recalculated on cross-model moves so
 // world placement is preserved). Every other byte of the entry survives.
 function rebuildDecorationEntry(entryBody, { parent = null, name = null, transform = null }) {
   const mapComponent4 = (compBytes) => {
@@ -439,6 +467,72 @@ function rebuildDecorationEntry(entryBody, { parent = null, name = null, transfo
   }));
 }
 
+// ---------- entity groups ----------
+// A group export holds a class-3 group entity (top field 1) whose logic
+// component 61 lists its member entities, plus a class-1 "twin" of the same
+// guid in field 2 (the group's prefab definition, same child list without
+// entity guids). Members are class-3 entities in field 2 that already carry
+// WORLD transforms; their only link to the group is logic component 62
+// {1: groupGuid, 2: prefabGuid, 3: guid, 4: index}.
+
+// map over the logic components of a model/entity entry's prefab body;
+// fn(type, compItems) returns replacement items or undefined to keep
+function mapLogicComponents(entryBody, fn) {
+  const items = parseMsg(entryBody);
+  const layout = modelLayout(items);
+  return encodeMsg(items.map((it) => {
+    if (it.field !== layout.wrapper || it.wire !== 2) return it;
+    return { ...it, val: encodeMsg(parseMsg(it.val).map((w) => {
+      if (w.field !== 1 || w.wire !== 2) return w;
+      return { ...w, val: encodeMsg(parseMsg(w.val).map((c) => {
+        if (c.field !== layout.groupA || c.wire !== 2) return c;
+        const comp = parseMsg(c.val);
+        const type = comp.find((x) => x.field === 1 && x.wire === 0);
+        const repl = fn(type ? Number(type.val) : null, comp);
+        return repl ? { ...c, val: encodeMsg(repl) } : c;
+      })) };
+    })) };
+  }));
+}
+
+// A member entity leaving its group: the membership component (62) body is
+// emptied, exactly as the game's own standalone main-object exports carry it.
+function buildStandaloneEntity(entryBody) {
+  return mapLogicComponents(entryBody, (t, comp) => t === 62
+    ? comp.map((x) => x.wire === 2 ? { ...x, val: new Uint8Array(0) } : x)
+    : undefined);
+}
+
+// The group entity (or its prefab twin) with some members removed: their
+// refs leave the entry's reference list and their records leave the 61
+// child list. Everything else stays byte-identical.
+function trimGroupEntry(entryBody, { goneEntities, gonePrefabs, isTwin }) {
+  const items = parseMsg(entryBody).filter((it) => {
+    if (it.field !== 2 || it.wire !== 2) return true;
+    const id = parseIdentity(it.val);
+    if (id.classDomain !== 1) return true;
+    if (id.kind === 1 && gonePrefabs.has(id.guid)) return false;
+    if (id.kind === 2 && goneEntities.has(id.guid)) return false;
+    return true;
+  });
+  return mapLogicComponents(encodeMsg(items), (t, comp) => {
+    if (t !== 61) return;
+    return comp.map((x) => {
+      if (x.wire !== 2 || !x.val.length) return x;
+      return { ...x, val: encodeMsg(parseMsg(x.val).filter((r) => {
+        if (r.field !== 1 || r.wire !== 2) return true;
+        let prefab = null, entity = null;
+        for (const f of parseMsg(r.val)) {
+          if (f.wire !== 0) continue;
+          if (f.field === 1) prefab = Number(f.val);
+          else if (f.field === 7) entity = Number(f.val);
+        }
+        return isTwin ? !gonePrefabs.has(prefab) : !goneEntities.has(entity);
+      })) };
+    });
+  });
+}
+
 // ---------- session ----------
 
 export class GiaSession {
@@ -462,6 +556,8 @@ export class GiaSession {
     this._decT = new Map();     // decoration guid -> current effective local transform
     this._decTransformDirty = new Set(); // guids whose transform must be rewritten
     this._models = [];
+    this._entities = new Map(); // class-3 entities in field 2 (group members): guid -> {topIdx, summary}
+    this._twins = new Map();    // class-1 prefab twins in field 2: guid -> topIdx
     let exportTag = '', engineVersion = '';
     let decorationEntries = 0, otherEntries = 0;
     let maxGuid = 0;
@@ -473,24 +569,7 @@ export class GiaSession {
         const s = summarizeModel(it.val);
         bump(s.guid);
         for (const g of s.decGuids) bump(g);
-        // default zoom differs by layout: generated class-1 models use 0.1,
-        // class-3 game objects (e.g. Empty Model) use 1.0
-        const zd = s.wrapper === 11 ? 0.1 : 1;
-        this._models.push({
-          uid: this._models.length,
-          srcTopIndex: idx,
-          srcBody: it.val,
-          srcAllDecSet: new Set(s.decGuids),
-          srcDecGuids: s.decGuids.slice(),
-          otherRefGuids: s.otherRefGuids,
-          guid: s.guid,
-          name: s.name,
-          decGuids: s.decGuids.slice(),
-          worldPos: s.pos ?? { x: 0, y: 0, z: 0 },
-          rot: s.rot ?? { x: 0, y: 0, z: 0 },
-          zoom: s.zoom ?? { x: zd, y: zd, z: zd },
-          isNew: false,
-        });
+        this._models.push(this._modelRecord(this._models.length, idx, it.val, s));
       } else if (it.field === 2) {
         const e = summarizeEntry(it.val);
         bump(e.guid);
@@ -504,10 +583,13 @@ export class GiaSession {
           }
         } else {
           otherEntries++;
+          if (e.cls === 3 && e.guid != null) this._entities.set(e.guid, { topIdx: idx, summary: summarizeModel(it.val) });
+          else if (e.cls === 1 && e.guid != null) this._twins.set(e.guid, idx);
         }
       } else if (it.field === 3) exportTag = utf8.decode(it.val);
       else if (it.field === 5) engineVersion = utf8.decode(it.val);
     });
+    for (const m of this._models) this._attachGroup(m);
 
     this._nextGuid = maxGuid + 1;
     this._nextUid = this._models.length;
@@ -516,6 +598,7 @@ export class GiaSession {
     this.reorderCount = 0;
     this.renameCount = 0;
     this.moveCount = 0;
+    this.ungroupCount = 0;
     this.meta = {
       exportName: (exportTag.match(/\\(.+)\.gia$/) || [])[1] ?? '',
       engineVersion,
@@ -523,6 +606,41 @@ export class GiaSession {
       otherEntries,
       modelsBefore: this._models.length,
     };
+  }
+
+  // live model record for a source entry (field-1 item at `topIdx`)
+  _modelRecord(uid, topIdx, body, s) {
+    // default zoom differs by layout: generated class-1 models use 0.1,
+    // class-3 game objects (e.g. Empty Model) use 1.0
+    const zd = s.wrapper === 11 ? 0.1 : 1;
+    return {
+      uid,
+      srcTopIndex: topIdx,
+      srcBody: body,
+      srcAllDecSet: new Set(s.decGuids),
+      srcDecGuids: s.decGuids.slice(),
+      otherRefGuids: s.otherRefGuids,
+      children: s.children,
+      group: null,
+      guid: s.guid,
+      name: s.name,
+      decGuids: s.decGuids.slice(),
+      worldPos: s.pos ?? { x: 0, y: 0, z: 0 },
+      rot: s.rot ?? { x: 0, y: 0, z: 0 },
+      zoom: s.zoom ?? { x: zd, y: zd, z: zd },
+      isNew: false,
+    };
+  }
+
+  // A model is an entity group when its child list names entities that
+  // exist in this file; members are listed in child-list order.
+  _attachGroup(m) {
+    const members = [];
+    for (const c of m.children ?? []) {
+      const ent = c.entityGuid != null ? this._entities.get(c.entityGuid) : null;
+      if (ent) members.push({ guid: c.entityGuid, prefabGuid: c.prefabGuid, index: c.index });
+    }
+    m.group = members.length ? { members } : null;
   }
 
   // Display view of every model, in file order (new models follow their
@@ -536,7 +654,135 @@ export class GiaSession {
       count: m.decGuids.length,
       isNew: m.isNew,
       hasGraph: !m.isNew && m.otherRefGuids.length > 0,
+      isGroup: !!m.group,
+      memberCount: m.group ? m.group.members.length : 0,
     }));
+  }
+
+  // Display view of an entity group's members, in child-list order.
+  groupMembers(modelId) {
+    const m = this._models[modelId];
+    if (!m) fail('Unknown model.', 'err.unknownModel');
+    if (!m.group) return [];
+    return m.group.members.map((x, index) => {
+      const ent = this._entities.get(x.guid);
+      const s = ent.summary;
+      return {
+        index,
+        guid: x.guid,
+        name: s.name,
+        groupIndex: x.index,
+        count: s.decGuids.length,
+        hasGraph: s.otherRefGuids.length > 0,
+        isGroup: s.children.some((c) => c.entityGuid != null && this._entities.has(c.entityGuid)),
+      };
+    });
+  }
+
+  // 3D-viewer view of a group: one point per member at its (world) position.
+  groupMemberPoints(modelId) {
+    return this.groupMembers(modelId).map((x) => {
+      const p = this._entities.get(x.guid).summary.pos ?? { x: 0, y: 0, z: 0 };
+      return { index: x.index, guid: x.guid, name: x.name, x: p.x, y: p.y, z: p.z };
+    });
+  }
+
+  // Move member entities out of an entity group so they become standalone
+  // main objects (top-level models), placed right after the group in
+  // child-list order. `memberGuids` limits the operation to those members;
+  // omit it to ungroup every member. When no member remains, the group
+  // entity and its prefab twin are removed from the file; otherwise both
+  // keep the remaining members only. Extracted entities keep every byte
+  // except the emptied group-membership component; their world placement
+  // is unchanged because member transforms are stored in world space.
+  // Returns {newIds, count, removedGroup}.
+  ungroup(modelId, memberGuids = null) {
+    const m = this._models[modelId];
+    if (!m) fail('Unknown model.', 'err.unknownModel');
+    if (!m.group) fail('This model is not an entity group.', 'err.notGroup');
+    const want = memberGuids == null ? null : new Set([...memberGuids].map(Number));
+    const extracted = m.group.members.filter((x) => !want || want.has(x.guid));
+    if (!extracted.length) fail('Select at least one member entity to ungroup.', 'err.selectMember');
+    const remaining = m.group.members.filter((x) => !extracted.includes(x));
+    const dissolve = remaining.length === 0;
+    const goneEntities = new Set(extracted.map((x) => x.guid));
+    const keptPrefabs = new Set(remaining.map((x) => x.prefabGuid));
+    const gonePrefabs = new Set(extracted.map((x) => x.prefabGuid).filter((g) => !keptPrefabs.has(g)));
+    const twinIdx = this._twins.get(m.guid) ?? -1;
+    const memberAt = new Map(extracted.map((x) => [this._entities.get(x.guid).topIdx, x]));
+
+    // rebuild the top-level item list; indexMap translates surviving old
+    // top indices to new ones, so every model's source pointer follows
+    const newTop = [];
+    const indexMap = new Map();
+    const born = []; // {topIdx, body}
+    this._top.forEach((it, idx) => {
+      if (idx === m.srcTopIndex) {
+        if (!dissolve) {
+          const body = trimGroupEntry(it.val, { goneEntities, gonePrefabs, isTwin: false });
+          indexMap.set(idx, newTop.length);
+          newTop.push({ field: 1, wire: 2, val: body });
+          m.srcBody = body;
+        }
+        for (const x of extracted) {
+          const body = buildStandaloneEntity(this._top[this._entities.get(x.guid).topIdx].val);
+          born.push({ topIdx: newTop.length, body });
+          newTop.push({ field: 1, wire: 2, val: body });
+        }
+        return;
+      }
+      if (idx === twinIdx) {
+        if (dissolve) return; // the group's prefab definition leaves with it
+        indexMap.set(idx, newTop.length);
+        newTop.push({ field: 2, wire: 2, val: trimGroupEntry(it.val, { goneEntities, gonePrefabs, isTwin: true }) });
+        return;
+      }
+      if (memberAt.has(idx)) return; // now a main object (above)
+      indexMap.set(idx, newTop.length);
+      newTop.push(it);
+    });
+
+    // models: the dissolved group disappears, the freed members follow the
+    // group's position, every other record just re-points at its entry
+    const survivors = [];
+    const bornRecs = new Set();
+    for (const rec of this._models) {
+      if (rec === m) {
+        if (!dissolve) survivors.push(rec);
+        for (const b of born) {
+          const nm = this._modelRecord(this._nextUid++, b.topIdx, b.body, summarizeModel(b.body));
+          nm.fromGroup = true;
+          bornRecs.add(nm);
+          survivors.push(nm);
+        }
+        continue;
+      }
+      survivors.push(rec);
+    }
+    for (const rec of survivors) {
+      if (rec === m || bornRecs.has(rec)) continue;
+      rec.srcTopIndex = indexMap.get(rec.srcTopIndex);
+    }
+    if (!dissolve) {
+      m.srcTopIndex = indexMap.get(m.srcTopIndex);
+      m.children = m.children.filter((c) => !goneEntities.has(c.entityGuid));
+    }
+    for (const [g, ent] of this._entities) {
+      if (goneEntities.has(g)) this._entities.delete(g);
+      else ent.topIdx = indexMap.get(ent.topIdx);
+    }
+    for (const [g, idx] of this._twins) {
+      if (dissolve && idx === twinIdx) this._twins.delete(g);
+      else this._twins.set(g, indexMap.get(idx));
+    }
+    this._top = newTop;
+    this._models = survivors;
+    for (const rec of this._models) this._attachGroup(rec);
+    this.ungroupCount++;
+
+    const newIds = [];
+    this._models.forEach((rec, id) => { if (bornRecs.has(rec)) newIds.push(id); });
+    return { newIds, count: extracted.length, removedGroup: dissolve };
   }
 
   // Display view of one model's Decoration list, in model order.
@@ -550,7 +796,7 @@ export class GiaSession {
   }
 
   // 3D-viewer view: one point per decoration, at its world position (full
-  // verified composition: model pos + rot × (zoom ⊙ local pos)). Read-only —
+  // verified composition: model pos + rot × (zoom ⊙ local pos)). Read-only:
   // display never feeds back into serialization.
   decorationPoints(modelId) {
     const m = this._models[modelId];
@@ -572,7 +818,7 @@ export class GiaSession {
 
   get changed() {
     return this.splitCount > 0 || this.reorderCount > 0
-      || this.renameCount > 0 || this.moveCount > 0;
+      || this.renameCount > 0 || this.moveCount > 0 || this.ungroupCount > 0;
   }
 
   // Rename a model. The new name is patched into the entry (field 3 +
@@ -603,7 +849,7 @@ export class GiaSession {
   }
 
   // Rename every decoration at `indices` to the same name in ONE operation
-  // (duplicate names are allowed by the format — no uniqueness enforcement).
+  // (duplicate names are allowed by the format, so no uniqueness enforcement).
   // Returns an op token for revertRename/replayRename, enabling undo/redo.
   renameDecorationsBulk(modelId, indices, name) {
     const m = this._models[modelId];
@@ -664,17 +910,17 @@ export class GiaSession {
       fail('Selection is out of range.', 'err.range');
     }
     // reject (before touching anything) moves that would push the target
-    // past the game's per-model limit — both models stay unchanged
+    // past the game's per-model limit; both models stay unchanged
     const total = dst.decGuids.length + picked.length;
     if (total > MAX_DECORATIONS_PER_MODEL) {
-      fail(`Each model can hold at most ${MAX_DECORATIONS_PER_MODEL} Decoration entries — this move would give "${dst.name}" ${total}.`,
+      fail(`A model can hold at most ${MAX_DECORATIONS_PER_MODEL} Decoration entries. This move would give "${dst.name}" ${total}.`,
         'err.moveLimit', { max: MAX_DECORATIONS_PER_MODEL, total, name: dst.name });
     }
     const set = new Set(picked);
     const moving = picked.map((i) => src.decGuids[i]);
 
     // Recompute each moved decoration's local transform relative to the new
-    // model so its world placement is preserved (verified composition — see
+    // model so its world placement is preserved (verified composition, see
     // js/transforms.js). No-ops when the models' transforms are identical;
     // a decoration whose recomputed transform matches its original parsed
     // values (e.g. moved away and back) returns to byte-preserving state.
@@ -682,7 +928,7 @@ export class GiaSession {
     const toT = { pos: dst.worldPos, rot: dst.rot, scale: dst.zoom };
     for (const g of moving) {
       const local = this._decT.get(g);
-      if (!local) continue; // entry has no transform component — nothing to rewrite
+      if (!local) continue; // entry has no transform component, so nothing to rewrite
       const next = reparentLocal(local, fromT, toT);
       if (!next) continue;
       const orig = this._decT0.get(g);
@@ -751,7 +997,7 @@ export class GiaSession {
   // only by omitted models. Everything kept is preserved exactly as the
   // full export would emit it. Omit the argument to export every model.
   // Move the decorations at `indices` (current positions) so they sit, in
-  // their current relative order, starting at `targetIndex` — expressed in
+  // their current relative order, starting at `targetIndex`, expressed in
   // the list as it stands AFTER the moved entries are lifted out. Only the
   // model's ordering changes; every Decoration entry keeps its bytes, so
   // all metadata stays attached to the same decoration. Returns the moved
@@ -848,7 +1094,7 @@ export class GiaSession {
           }
         } else {
           // non-decoration entries (node graphs, unknown classes) are ALWAYS
-          // preserved — even when every model referencing them is excluded —
+          // preserved, even when every model referencing them is excluded,
           // so nothing outside the Decoration lists is ever silently lost
           out.push(it);
         }

@@ -1,4 +1,4 @@
-// Verification suite for js/gia-splitter.js — run with: node tools/test-splitter.mjs
+// Verification suite for js/gia-splitter.js. Run with: node tools/test-splitter.mjs
 // Uses the sample fixtures in reference/reference-samples/ and the legacy
 // geometry-aware parser (tools/gia-parser.js) as an independent cross-check.
 
@@ -14,7 +14,7 @@ const load = (f) => new Uint8Array(readFileSync(join(SAMPLES, f)));
 
 let failures = 0;
 const check = (label, ok, detail = '') => {
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `: ${detail}` : ''}`);
   if (!ok) failures++;
 };
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -285,7 +285,7 @@ for (const f of files) {
     eq(dst.objects.find((o) => o.name === 'autumn_sword_3').decorationGuids, expect));
   check('reorder: same-length file (only list order changed)', out.length === bytes.length);
 
-  // every decoration entry stays byte-identical — metadata attached by guid
+  // every decoration entry stays byte-identical; metadata attached by guid
   const a = rawView(bytes), b = rawView(out);
   let identical = a.decs.size === b.decs.size;
   for (const [g, raw] of a.decs) { const o = b.decs.get(g); if (!o || !eq(raw, o)) identical = false; }
@@ -442,7 +442,7 @@ for (const f of files) {
 {
   // world positions: the legacy parser bakes positions as dec + modelPos*10
   // (in 0.1 m units); the engine's points are meters, so point = baked / 10
-  // whenever zoom is the default 0.1 — cross-check on a model with a
+  // whenever zoom is the default 0.1. Cross-check on a model with a
   // non-zero world position (White Square: model at ~(3.73, 0, -2.70))
   {
     const bytes = load('White Square.gia');
@@ -501,6 +501,94 @@ for (const f of files) {
       s.decorations(0)[0].name === 'Blade Part');
     s.revertRename(op);
     check('bulk rename: full unwind is byte-identical', !s.changed && eq(s.serialize(), bytes));
+  }
+}
+
+// 9) entity groups: a class-3 group entity (field 1) whose members are
+//    class-3 entities in field 2; ungrouping frees them as main objects.
+//    The fixture is a user export kept locally (reference/ is gitignored);
+//    the section is skipped when it is absent.
+{
+  const f = 'Furina Prefab Group.gia';
+  let bytes = null;
+  try { bytes = load(f); } catch { /* fixture not present */ }
+  const optional = (name) => { try { return load(name); } catch { return null; } };
+  const mainObjects = (b) => {
+    const payloadLen = new DataView(b.buffer, b.byteOffset).getUint32(16, false);
+    return _internal.parseMsg(b.subarray(20, 20 + payloadLen)).filter((it) => it.field === 1 && it.wire === 2).length;
+  };
+  if (!bytes) {
+    console.log(`SKIP  entity groups: ${f} not present`);
+  } else {
+    const s = new GiaSession(bytes);
+    check('group: detected, with member count and no bogus decorations',
+      s.models.length === 1 && s.models[0].isGroup && s.models[0].memberCount === 8 && s.models[0].count === 0,
+      JSON.stringify(s.models[0]));
+    const members = s.groupMembers(0);
+    check('group: member view lists entities in child order with their decoration counts',
+      members.length === 8 && members.every((x, i) => x.index === i)
+      && members[1].name === 'Body_Spawner' && members[1].count === 50 && members[1].hasGraph
+      && members[2].name === 'Head_Furina' && members[2].count === 82 && !members[2].hasGraph,
+      members.map((x) => `${x.name}:${x.count}`).join(', '));
+    check('group: member points carry world positions',
+      s.groupMemberPoints(0).length === 8 && Math.abs(s.groupMemberPoints(0)[1].x - 1.6802940368652344) < 1e-9);
+    check('group: no-op serialize is byte-identical', eq(s.serialize(), bytes) && !s.changed);
+
+    const r = s.ungroup(0);
+    check('group: ungroup all frees every member and removes the group',
+      r.removedGroup && r.count === 8 && r.newIds.join() === '0,1,2,3,4,5,6,7'
+      && s.models.length === 8 && s.models.every((m) => !m.isGroup)
+      && s.models[2].name === 'Head_Furina' && s.models[2].count === 82 && s.changed && s.ungroupCount === 1);
+    const out = s.serialize();
+    check('group: output has 8 main objects and every decoration entry byte-identical',
+      mainObjects(out) === 8 && (() => {
+        const a = rawView(bytes).decs, b = rawView(out).decs;
+        return a.size === b.size && [...a].every(([g, v]) => b.has(g) && eq(b.get(g), v));
+      })());
+    const s2 = new GiaSession(out);
+    check('group: output reloads as 8 plain models with all decorations',
+      s2.models.length === 8 && s2.models.every((m) => !m.isGroup) && s2.meta.decorationEntries === 460
+      && eq(s2.serialize(), out));
+    const expFull = optional('Furina Prefab Group Ungrouped.gia');
+    if (expFull) check('group: matches the independently verified ungrouped fixture', eq(out, expFull));
+
+    // partial: only name-matched members leave; the group keeps the rest
+    const p = new GiaSession(bytes);
+    const guids = p.groupMembers(0).filter((x) => /Furina|Body_Spawner/.test(x.name)).map((x) => x.guid);
+    const r2 = p.ungroup(0, guids);
+    check('group: partial ungroup keeps the group with the remaining members',
+      !r2.removedGroup && r2.count === 6 && r2.newIds.join() === '1,2,3,4,5,6'
+      && p.models.length === 7 && p.models[0].isGroup && p.models[0].memberCount === 2
+      && p.groupMembers(0).map((x) => x.name).join('|') === '体素角色-四肢关节|Prefab Replica_体素达达利亚-本体');
+    const partialOut = p.serialize();
+    check('group: partial output has group + 6 main objects', mainObjects(partialOut) === 7);
+    const expPart = optional('Furina Prefab Group Partially Ungrouped.gia');
+    if (expPart) check('group: matches the independently verified partial fixture', eq(partialOut, expPart));
+    const r3 = p.ungroup(0);
+    check('group: ungrouping the rest removes the group',
+      r3.removedGroup && r3.count === 2 && p.models.length === 8 && p.models.every((m) => !m.isGroup)
+      && p.models[0].name === '体素角色-四肢关节' && p.models[2].name === 'Body_Spawner');
+
+    // error paths leave the session untouched
+    let key = null;
+    try { new GiaSession(bytes).ungroup(0, [1]); } catch (e) { key = e.i18n?.key; }
+    check('group: unknown member guids → err.selectMember', key === 'err.selectMember');
+    key = null;
+    try { s.ungroup(0); } catch (e) { key = e.i18n?.key; }
+    check('group: ungroup on a plain model → err.notGroup', key === 'err.notGroup');
+
+    // the freed members are ordinary models: split + rename + reload
+    const nid = s.splitModel(2, [0, 1]);
+    s.renameModel(nid, 'Head_Split');
+    const s3 = new GiaSession(s.serialize());
+    check('group: split + rename after ungroup survive reload',
+      s3.models.length === 9 && s3.models[2].count === 80 && s3.models[3].name === 'Head_Split' && s3.models[3].count === 2
+      && s3.meta.decorationEntries === 460);
+    // selective export drops an excluded freed member's decorations only
+    const s4 = new GiaSession(bytes);
+    s4.ungroup(0);
+    const sub = new GiaSession(s4.serialize(s4.models.filter((m) => m.name !== 'Head_Furina').map((m) => m.uid)));
+    check('group: selective export after ungroup', sub.models.length === 7 && sub.meta.decorationEntries === 460 - 82);
   }
 }
 
