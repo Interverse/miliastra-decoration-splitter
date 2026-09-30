@@ -2321,7 +2321,7 @@ function renderGilExportBar() {
     if (plan.prefabs) parts.push(t('gil.export.infoPrefabs', { p: num(plan.prefabs) }));
   }
   if (plan.skipped.length) parts.push(t('gil.export.infoSkipped', { k: num(plan.skipped.length) }));
-  const text = parts.join(' ');
+  const text = parts.join(' · ');
   els.gilExportInfo.textContent = text;
   els.gilExportInfo.classList.toggle('armed', plan.objects.length > 0);
   els.btnGilExportGia.title = text;
