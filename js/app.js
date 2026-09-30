@@ -45,6 +45,7 @@ const els = {
   btnGilUndo: $('btn-gil-undo'), btnGilRedo: $('btn-gil-redo'),
   btnGilSplitSel: $('btn-gil-split-sel'), btnGilSplitParents: $('btn-gil-split-parents'),
   gilOptCollision: $('gil-opt-collision'), gilOptRemoveParent: $('gil-opt-remove-parent'),
+  gilExportInfo: $('gil-export-info'), btnGilExportGia: $('btn-gil-export-gia'),
   // shared dialogs / progress
   confirmModal: $('confirm-modal'), cmHead: $('cm-head'), cmBody: $('cm-body'),
   cmOk: $('cm-ok'), cmCancel: $('cm-cancel'),
@@ -429,7 +430,7 @@ function updateGiaSelDots() {
 // Select all / none: export inclusion in .gia mode, extraction targets in .gil
 els.btnModelsAll.addEventListener('click', () => {
   if (state.mode === 'gil') {
-    for (const o of visibleGilObjects()) if (o.eligible) state.gil.parentSel.add(o.id);
+    for (const o of visibleGilObjects()) if (gilCheckable(o)) state.gil.parentSel.add(o.id);
     renderGilModels();
     renderGilDetail();
     renderGilOps();
@@ -1316,11 +1317,10 @@ function effectiveGilParent() {
 function pruneGilSelection() {
   const g = state.gil;
   const L = g.session.level;
-  // checked objects: extraction parents (hold decorations) or prefab group
-  // members (checked for ungrouping); anything else has nothing to act on
+  // checked objects stay checked while they exist: parents feed extraction,
+  // members feed ungrouping, and any object can be exported as a .gia
   for (const id of [...g.parentSel]) {
-    const o = L.objectById(id);
-    if (!o || (!o.decorationIds.length && g.session.memberGroup(id) === null)) g.parentSel.delete(id);
+    if (!L.objectById(id)) g.parentSel.delete(id);
   }
   if (g.decoSel.size) {
     const existing = new Set(L.decorations.map((d) => d.id));
@@ -1399,15 +1399,19 @@ function visibleGilObjects() {
   return rows;
 }
 
+// Every row can be ticked: extraction parents (hold decorations), group
+// members (checked members are what "Ungroup selected" acts on), prefab
+// groups and plain objects (checked objects can be exported as a .gia; a
+// ticked group takes its members along). Clicking a group still opens its
+// member view and ungroup bar.
+const gilCheckable = () => true;
+
 function makeGilObjRow(o) {
   const g = state.gil;
-  // checkable: an extraction parent (holds decorations) or a group member
-  // (checked members are what "Ungroup selected" acts on)
   const nested = o.depth > 0;
-  const checkable = o.eligible || nested;
+  const checkable = gilCheckable(o);
   const row = document.createElement('div');
   row.className = 'model-row'
-    + (checkable || o.isGroup ? '' : ' no-deco')
     + (nested ? ' nested' : '')
     + (o.isGroup ? ' group-row' : '')
     + (g.parentSel.has(o.id) ? ' checked' : '')
@@ -1433,8 +1437,6 @@ function makeGilObjRow(o) {
   cb.type = 'checkbox';
   cb.className = 'model-export';
   cb.checked = g.parentSel.has(o.id);
-  cb.disabled = !checkable;
-  if (!checkable) cb.style.visibility = 'hidden'; // a group without decorations is opened, not checked
 
   const name = document.createElement('span');
   name.className = 'model-name';
@@ -1502,16 +1504,6 @@ function makeGilObjRow(o) {
     applyGilMoveToParent(indices, o.id);
   });
 
-  if (!checkable && o.isGroup) {
-    // a group holding no decorations can only be focused (ungroup bar, member
-    // points in the viewer), not checked as an extraction parent
-    row.addEventListener('click', () => {
-      g.active = o.id;
-      renderGilModels();
-      renderGilDetail();
-      renderGilOps();
-    });
-  }
   if (checkable) {
     row.addEventListener('click', (e) => {
       if (e.target !== cb) onGilParentClick(o.id, e);
@@ -1540,7 +1532,7 @@ function makeGilObjRow(o) {
 function onGilParentClick(id, e) {
   const g = state.gil;
   if (e.shiftKey && g.parentAnchor !== null) {
-    const order = visibleGilObjects().filter((o) => o.eligible || o.depth > 0).map((o) => o.id);
+    const order = visibleGilObjects().filter(gilCheckable).map((o) => o.id);
     const a = order.indexOf(g.parentAnchor);
     const b = order.indexOf(id);
     if (a !== -1 && b !== -1) {
@@ -2076,6 +2068,7 @@ function renderGilOps() {
   els.btnGilUndo.disabled = !g.session.canUndo;
   els.btnGilRedo.disabled = !g.session.canRedo;
   els.btnRenameSel.disabled = nSel === 0;
+  renderGilExportBar();
   renderGilGroupBar();
 }
 
@@ -2303,6 +2296,92 @@ function doGilRedo() {
   renderAll();
 }
 
+// ---------- .gia export ----------
+// The ticked objects (the same ticks that pick extraction parents) can leave
+// the level as a .gia asset: each becomes a main object carrying its
+// decorations, bytes untouched. Objects that depend on the level's prefab
+// library are listed in the review dialog and left out. The level itself is
+// never changed by an export, so nothing lands on the undo stack.
+
+function renderGilExportBar() {
+  const g = state.gil;
+  const n = g.parentSel.size;
+  els.btnGilExportGia.disabled = n === 0;
+  if (!n) {
+    els.gilExportInfo.textContent = '';
+    els.gilExportInfo.classList.remove('armed');
+    els.btnGilExportGia.title = t('gil.export.tip');
+    return;
+  }
+  const plan = g.session.planGiaExport(g.parentSel);
+  const parts = [];
+  if (!plan.objects.length) parts.push(t('gil.export.none'));
+  else {
+    parts.push(t('gil.export.info', { n: num(plan.objects.length), d: num(plan.decorations) }));
+    if (plan.prefabs) parts.push(t('gil.export.infoPrefabs', { p: num(plan.prefabs) }));
+  }
+  if (plan.skipped.length) parts.push(t('gil.export.infoSkipped', { k: num(plan.skipped.length) }));
+  const text = parts.join(' ');
+  els.gilExportInfo.textContent = text;
+  els.gilExportInfo.classList.toggle('armed', plan.objects.length > 0);
+  els.btnGilExportGia.title = text;
+}
+
+// Asset name: a single object is named after itself, several after the
+// first one plus a count (language-neutral, so file names stay portable).
+function gilExportName(plan) {
+  const first = (plan.objects[0].name || state.fileName).trim();
+  const name = plan.objects.length > 1 ? `${first} +${plan.objects.length - 1}` : first;
+  return sanitizeName(name) || 'export';
+}
+
+function doGilExportGia() {
+  const g = state.gil;
+  if (!g.session || !g.parentSel.size) return;
+  pruneGilSelection();
+  const plan = g.session.planGiaExport(g.parentSel);
+  const more = (list) => (list.length > WARNING_DISPLAY_CAP
+    ? `<li class="w">${escapeHtml(t('gil.wMore', { n: list.length - WARNING_DISPLAY_CAP }))}</li>`
+    : '');
+  const skippedHtml = () => plan.skipped.slice(0, WARNING_DISPLAY_CAP)
+    .map((s) => `<li class="w">${escapeHtml(t(`gil.export.skip.${s.reason}`, { name: s.name || String(s.id), id: s.id }))}</li>`)
+    .join('') + more(plan.skipped);
+  if (!plan.objects.length) {
+    showError(`<p>${escapeHtml(t('gil.export.none'))}</p>` + (plan.skipped.length ? `<ul>${skippedHtml()}</ul>` : ''));
+    return;
+  }
+  const name = gilExportName(plan);
+  const counts = { n: num(plan.objects.length), d: num(plan.decorations), name };
+  const run = () => {
+    try {
+      downloadBytes(g.session.buildGiaExport(plan, { name }), `${name}.gia`);
+      toast(t('gil.toast.exportedGia', counts), true);
+    } catch (err) {
+      console.error(err);
+      showError(`<p>${escapeHtml(t('gil.export.fail'))}</p><p class="e">${escapeHtml(err.message)}</p>`);
+    }
+  };
+  if (!plan.skipped.length && !plan.warnings.length) {
+    run();
+    return;
+  }
+  let body = `<p>${escapeHtml(t('gil.export.intro', counts))}`;
+  if (plan.prefabs) body += ' ' + escapeHtml(t('gil.export.introPrefabs', { p: num(plan.prefabs) }));
+  if (plan.members) body += ' ' + escapeHtml(t('gil.export.introMembers', { m: num(plan.members) }));
+  if (plan.graphs) body += ' ' + escapeHtml(t('gil.export.introGraphs', { g: num(plan.graphs) }));
+  body += '</p>';
+  if (plan.warnings.length) {
+    body += '<ul>' + plan.warnings.slice(0, WARNING_DISPLAY_CAP)
+      .map((w) => `<li class="w">${escapeHtml(t(`gil.export.w.${w.code}`, { ...w.params, name: w.params.name || String(w.params.id) }))}</li>`)
+      .join('') + more(plan.warnings) + '</ul>';
+  }
+  if (plan.skipped.length) {
+    body += `<p class="w">${escapeHtml(t('gil.export.skippedHead'))}</p><ul>${skippedHtml()}</ul>`;
+  }
+  body += `<p>${escapeHtml(t('gil.export.confirm'))}</p>`;
+  confirmDialog(t('gil.panel.exportGia'), body, run);
+}
+
 // ---------- export bar (.gil) ----------
 
 function renderGilExport() {
@@ -2398,6 +2477,7 @@ els.btnGilSplitSel.addEventListener('click', () => doGilSplit('decos'));
 els.btnGilSplitParents.addEventListener('click', () => doGilSplit('parents'));
 els.btnGilUndo.addEventListener('click', doGilUndo);
 els.btnGilRedo.addEventListener('click', doGilRedo);
+els.btnGilExportGia.addEventListener('click', doGilExportGia);
 
 els.gilOptCollision.addEventListener('change', () => {
   state.gil.collision = els.gilOptCollision.checked;

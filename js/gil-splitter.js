@@ -23,6 +23,7 @@ import {
   msgField,
   bytesField,
   varintField,
+  stringField,
   f32Field,
   encodePackedVarints,
   decodePackedVarints,
@@ -68,10 +69,10 @@ function encodeVec3(v) {
 const GROUP_CHILD_LIST = 61;
 const GROUP_MEMBERSHIP = 62;
 
-function findCompA(compA, type) {
-  for (const cf of compA) {
+function findComp(list, payloadMap, type) {
+  for (const cf of list) {
     try {
-      const c = readComponent(cf, COMP_A_PAYLOAD);
+      const c = readComponent(cf, payloadMap);
       if (c.type === type) return c;
     } catch {
       /* ignore */
@@ -79,6 +80,135 @@ function findCompA(compA, type) {
   }
   return null;
 }
+const findCompA = (compA, type) => findComp(compA, COMP_A_PAYLOAD, type);
+const findCompB = (compB, type) => findComp(compB, COMP_B_PAYLOAD, type);
+
+// ---------- .gia export ----------
+// A .gia asset is a wrap around level bytes. Verified against the game's own
+// exports (every one of the 484 entries in "Furina Prefab Group.gia" is
+// byte-identical to an entry of "Prefab Group.gil"; "Stone Elemental Cube As
+// Decoration.gia" matches the Empty Model parents of the level fixtures):
+//
+//   world object (root 5)            → class-3 entity entry
+//     1: { 1: {2:1 3:2 4:id}  2: refs...  3: name  5: 3
+//          12: { 1: <bytes>  2: 1402  [3: kind]  4: builtin template } }
+//   library prefab (root 4, field 1) → class-1 prefab entry
+//     2: { 1: {2:1 3:1 4:id}  2: refs...  3: name  5: 1  11: { 1: <bytes> } }
+//   decoration (root 27; field 1 = a prefab's, field 2 = a placed object's)
+//     2: { 1: {2:1 3:14 4:id}  3: name  5: 28  21: { 1: <bytes> } }
+//   node graph (root 10, field 1)    → class-9 graph entry
+//     2: { 1: {2:5 4:guid}  3: name  5: 9  13: { 1: <bytes> } }
+//
+// Ids stay as they are in the level (both files use the same id spaces). An
+// object placed from a library prefab brings that prefab, and a prefab brings
+// its decorations, its node graph, the prefabs its group membership (A/62)
+// names and its group children (A/61). A prefab group instance brings its
+// member entities after all of that, in child-list order, each followed by
+// its own decorations. The reference order and entry order follow the game's
+// file. Only two things ever change inside an entry: a binding to a node
+// graph that is missing from the level is emptied, and a decoration list
+// naming ids that don't exist is trimmed to the real ones.
+const GIA_HEADER_WORDS = [1, 806, 3];
+const GIA_TRAILER = 1657;
+const GIA_ENTITY_TAIL = 1402; // wrapper field 2 on every game-exported class-3 entry
+// Export tag {uid}-{time}-{fileId}-\{name}.gia: uid and file id are read from
+// the level (root fields 39 and 1) when present, else these reference values.
+const GIA_TAG_UID = 600489258;
+const GIA_TAG_FILE_ID = 1073742021;
+const GIA_DEFAULT_VERSION = '6.7.0';
+const NODE_GRAPH_BINDING = 3; // entity component whose body binds a node graph
+const DECO_LIST = 40; // logic component holding the packed decoration id list (501)
+const EMPTY_BYTES = new Uint8Array(0);
+
+/** Display name from a component list's type-1 component ({1: name}). */
+function compName(compA) {
+  const c = findCompA(compA, 1);
+  if (!c || !c.payload || !c.payload.raw.length) return null;
+  try {
+    const nf = parseMessage(c.payload.raw).find((f) => f.num === 1 && f.wire === 2);
+    return nf ? fieldString(nf) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Links carried by a prefab body, which is what both a world object entry
+ * (component lists in fields 5/6) and a library entry (fields 6/7) are:
+ * template {1: prefab, 2: 1 when placed from a built-in}, decoration ids
+ * (A/40 field 501), group children (A/61), group membership (A/62), the
+ * node graph bound through B/3, the built-in template in the varint tail
+ * (field 8 on objects, field 2 on library entries) and the kind field 9 that
+ * group prefabs carry.
+ */
+function bodyLinks(fields, aNum, bNum) {
+  const compA = getFieldsOf(fields, aNum);
+  const compB = getFieldsOf(fields, bNum);
+  const out = {
+    name: compName(compA),
+    template: null,
+    placed: false,
+    builtin: null,
+    kind: null,
+    decoIds: [],
+    children: readGroupChildren(compA),
+    member: null,
+    graphGuid: null,
+  };
+  const tf = fields.find((f) => f.num === 2);
+  if (tf && tf.wire === 0) {
+    out.template = fieldVarint(tf);
+  } else if (tf && tf.raw.length) {
+    try {
+      const m = parseMessage(tf.raw);
+      const id = m.find((f) => f.num === 1 && f.wire === 0);
+      out.template = id ? fieldVarint(id) : null;
+      out.placed = m.some((f) => f.num === 2 && f.wire === 0 && fieldVarint(f) === 1);
+    } catch {
+      /* ignore */
+    }
+  }
+  const b8 = fields.find((f) => f.num === 8 && f.wire === 0);
+  if (b8) out.builtin = fieldVarint(b8);
+  const k9 = fields.find((f) => f.num === 9 && f.wire === 0);
+  if (k9) out.kind = fieldVarint(k9);
+  const c40 = findCompA(compA, DECO_LIST);
+  if (c40 && c40.payload && c40.payload.raw.length) {
+    try {
+      const pf = parseMessage(c40.payload.raw).find((f) => f.num === 501 && f.wire === 2);
+      if (pf) out.decoIds = decodePackedVarints(pf.raw);
+    } catch {
+      /* ignore */
+    }
+  }
+  const c62 = findCompA(compA, GROUP_MEMBERSHIP);
+  if (c62 && c62.payload && c62.payload.raw.length) {
+    try {
+      const mf = parseMessage(c62.payload.raw);
+      const v = (n) => {
+        const f = mf.find((x) => x.num === n && x.wire === 0);
+        return f ? fieldVarint(f) : null;
+      };
+      out.member = { group: v(1), prefab: v(2), guid: v(3) };
+    } catch {
+      /* ignore */
+    }
+  }
+  const c3 = findCompB(compB, NODE_GRAPH_BINDING);
+  if (c3 && c3.payload && c3.payload.raw.length) {
+    // binding body: {1: {1: {1: 1, 2: graph guid, 501: 20000}}}
+    try {
+      const a = parseMessage(c3.payload.raw).find((f) => f.num === 1 && f.wire === 2);
+      const b = a && parseMessage(a.raw).find((f) => f.num === 1 && f.wire === 2);
+      const g = b && parseMessage(b.raw).find((f) => f.num === 2 && f.wire === 0);
+      if (g) out.graphGuid = fieldVarint(g);
+    } catch {
+      /* ignore */
+    }
+  }
+  return out;
+}
+const getFieldsOf = (fields, num) => fields.filter((f) => f.num === num && f.wire === 2);
 
 /** Child records of a world object's group child list, in list order. */
 function readGroupChildren(compA) {
@@ -1045,6 +1175,340 @@ export class GilSession {
       }
     }
     ef.splice(at, 0, comp);
+  }
+
+  // ---------- .gia export ----------
+
+  // Everything an export can pull in besides world objects: the prefab
+  // library (root 4), prefab decorations (root 27 field 1; field 2 holds
+  // the placed ones the level model reads) and node graphs (root 10 field
+  // 1). The library and graph containers are never edited; the decoration
+  // container is, so the index follows its bytes.
+  _exportIndex() {
+    const R = this.level.root;
+    const libF = R.find((f) => f.num === 4 && f.wire === 2) ?? null;
+    const graphF = R.find((f) => f.num === 10 && f.wire === 2) ?? null;
+    const decoF = this.level.decoContainerField ?? null;
+    const decoRaw = decoF ? decoF.raw : null;
+    const idx = this._exportIdx;
+    if (idx && idx.libF === libF && idx.graphF === graphF && idx.decoRaw === decoRaw) return idx;
+
+    const prefabs = new Map(); // id -> {id, name, raw, links}
+    if (libF && libF.raw.length) {
+      try {
+        for (const e of parseMessage(libF.raw)) {
+          if (e.num !== 1 || e.wire !== 2) continue;
+          try {
+            const fields = parseMessage(e.raw);
+            const idF = fields.find((f) => f.num === 1 && f.wire === 0);
+            if (!idF) continue;
+            const links = bodyLinks(fields, 6, 7);
+            prefabs.set(fieldVarint(idF), { id: fieldVarint(idF), name: links.name ?? '', raw: e.raw, links });
+          } catch {
+            /* unreadable entry */
+          }
+        }
+      } catch {
+        /* unreadable library */
+      }
+    }
+    const prefabDecos = new Map(); // id -> {id, name, raw}
+    if (decoRaw && decoRaw.length) {
+      try {
+        for (const e of parseMessage(decoRaw)) {
+          if (e.num !== 1 || e.wire !== 2) continue;
+          try {
+            const fields = parseMessage(e.raw);
+            const idF = fields.find((f) => f.num === 1 && f.wire === 0);
+            if (!idF) continue;
+            prefabDecos.set(fieldVarint(idF), {
+              id: fieldVarint(idF),
+              name: compName(getFieldsOf(fields, 4)) ?? '',
+              raw: e.raw,
+            });
+          } catch {
+            /* unreadable entry */
+          }
+        }
+      } catch {
+        /* unreadable container */
+      }
+    }
+    const graphs = new Map(); // guid -> {guid, name, raw}
+    if (graphF && graphF.raw.length) {
+      try {
+        for (const e of parseMessage(graphF.raw)) {
+          if (e.num !== 1 || e.wire !== 2) continue;
+          try {
+            // entry {1: GRAPH}; GRAPH {1: {…, 5: guid}, 2: name, 3: nodes…}
+            const gf = parseMessage(e.raw).find((f) => f.num === 1 && f.wire === 2);
+            const graph = parseMessage(gf.raw);
+            const head = parseMessage(graph.find((f) => f.num === 1 && f.wire === 2).raw);
+            const guidF = head.find((f) => f.num === 5 && f.wire === 0);
+            if (!guidF) continue;
+            const nameF = graph.find((f) => f.num === 2 && f.wire === 2);
+            graphs.set(fieldVarint(guidF), { guid: fieldVarint(guidF), name: nameF ? fieldString(nameF) : '', raw: e.raw });
+          } catch {
+            /* not a graph entry */
+          }
+        }
+      } catch {
+        /* unreadable container */
+      }
+    }
+    this._exportIdx = { libF, graphF, decoRaw, prefabs, prefabDecos, graphs };
+    return this._exportIdx;
+  }
+
+  /**
+   * Work out what exporting `objectIds` as a .gia would contain, without
+   * touching anything. Ticked objects come out in level order; a ticked
+   * group brings its members (ticks on them are folded in), a ticked object
+   * placed from a library prefab brings that prefab, and so on down the
+   * chain. Returns {objects, items, skipped, warnings, decorations, prefabs,
+   * members, graphs}:
+   *   objects:  top-level entities [{id, name, ...}] (one class-3 entry each)
+   *   items:    the full emission plan, in file order (used by buildGiaExport)
+   *   skipped:  [{id, name, reason}] with reason 'prefabMissing'
+   *   warnings: [{code: 'graphMissing' | 'decoMissing' | 'memberStandalone', params}]
+   *   decorations / prefabs / members / graphs: entry counts
+   */
+  planGiaExport(objectIds) {
+    const L = this.level;
+    const idx = this._exportIndex();
+    const byId = this._decoMap();
+    const want = new Set([...objectIds].map(Number));
+
+    // members of ticked groups (any depth) travel with their group
+    const covered = new Set();
+    const cover = (gid) => {
+      for (const k of this._groupMap().groups.get(gid) ?? []) {
+        if (covered.has(k.objectId)) continue;
+        covered.add(k.objectId);
+        cover(k.objectId);
+      }
+    };
+    for (const id of want) if (this.isGroup(id)) cover(id);
+
+    const objects = [];
+    const items = [];
+    const skipped = [];
+    const warnings = [];
+    const seenPrefabs = new Set();
+    const seenGraphs = new Set();
+    const seenEntities = new Set();
+    const counts = { decorations: 0, prefabs: 0, members: 0, graphs: 0 };
+    const warn = (code, params) => warnings.push({ code, params });
+    const label = (name, id) => ({ name: name || String(id), id });
+
+    const emitGraph = (guid, ownerName, ownerId) => {
+      if (guid === null) return false;
+      if (!idx.graphs.has(guid)) {
+        warn('graphMissing', label(ownerName, ownerId));
+        return false;
+      }
+      if (!seenGraphs.has(guid)) {
+        seenGraphs.add(guid);
+        counts.graphs++;
+        items.push({ t: 'graph', g: idx.graphs.get(guid) });
+      }
+      return true;
+    };
+    const emitPrefab = (pid) => {
+      if (pid === null || seenPrefabs.has(pid) || !idx.prefabs.has(pid)) return;
+      seenPrefabs.add(pid);
+      counts.prefabs++;
+      const p = idx.prefabs.get(pid);
+      const decoIds = p.links.decoIds.filter((d) => idx.prefabDecos.has(d));
+      const missing = p.links.decoIds.length - decoIds.length;
+      if (missing) warn('decoMissing', { ...label(p.name, pid), n: missing });
+      const item = { t: 'prefab', p, decoIds, missing: missing > 0, graph: null };
+      items.push(item);
+      for (const d of decoIds) items.push({ t: 'deco', d: idx.prefabDecos.get(d) });
+      counts.decorations += decoIds.length;
+      if (emitGraph(p.links.graphGuid, p.name, pid)) item.graph = p.links.graphGuid;
+      const m = p.links.member;
+      for (const dep of m ? [m.prefab, m.guid] : []) if (dep !== pid) emitPrefab(dep);
+      for (const k of p.links.children) emitPrefab(k.prefabId);
+    };
+    const emitEntity = (o, top, standalone) => {
+      const links = bodyLinks(o.fields, 5, 6);
+      const name = o.name ?? '';
+      const item = { t: 'entity', o, links, name, top, standalone, decoIds: [], missing: false, graph: null };
+      if (top) objects.push({ id: o.id, name, prefabId: o.prefabId, item });
+      else items.push(item);
+      emitPrefab(links.template);
+      const m = standalone ? null : links.member;
+      for (const dep of m ? [m.prefab, m.guid] : []) emitPrefab(dep);
+      for (const k of links.children) emitPrefab(k.prefabId);
+      item.decoIds = o.decorationIds.filter((d) => byId.has(d));
+      const missing = o.decorationIds.length - item.decoIds.length;
+      if (missing) warn('decoMissing', { ...label(name, o.id), n: missing });
+      item.missing = missing > 0;
+      for (const d of item.decoIds) items.push({ t: 'deco', d: byId.get(d) });
+      counts.decorations += item.decoIds.length;
+      if (emitGraph(links.graphGuid, name, o.id)) item.graph = links.graphGuid;
+      for (const k of links.children) {
+        const member = k.objectId !== null && k.objectId !== o.id ? L.objectById(k.objectId) : null;
+        if (!member || seenEntities.has(member.id)) continue;
+        seenEntities.add(member.id);
+        counts.members++;
+        emitEntity(member, false, false);
+      }
+    };
+
+    for (const o of L.objects) {
+      if (!want.has(o.id) || covered.has(o.id)) continue;
+      const links = bodyLinks(o.fields, 5, 6);
+      const name = o.name ?? '';
+      if (links.template !== null && !links.placed && !idx.prefabs.has(links.template)) {
+        skipped.push({ id: o.id, name, reason: 'prefabMissing' });
+        continue;
+      }
+      const standalone = this.memberGroup(o.id) !== null;
+      if (standalone) warn('memberStandalone', label(name, o.id));
+      seenEntities.add(o.id);
+      emitEntity(o, true, standalone);
+    }
+    return { objects, items, skipped, warnings, ...counts };
+  }
+
+  /**
+   * Write a planned export as a complete .gia file. `name` becomes the asset
+   * name in the export tag. The level is not modified and nothing lands on
+   * the undo stack.
+   */
+  buildGiaExport(plan, { name = 'export', timestamp = Math.floor(Date.now() / 1000), uid = null, fileId = null } = {}) {
+    if (!plan.objects.length) {
+      const e = new Error('None of the chosen objects can be exported as a .gia.');
+      e.i18n = { key: 'gil.export.none' };
+      throw e;
+    }
+    const idx = this._exportIndex();
+    const identity = (kind, id) => msgField(1, [varintField(2, 1), varintField(3, kind), varintField(4, id)]);
+    const ref = (kind, id) => msgField(2, [varintField(2, 1), varintField(3, kind), varintField(4, id)]);
+    const graphRef = (guid) => msgField(2, [varintField(2, 5), varintField(4, guid)]);
+    const inLib = (id) => id !== null && idx.prefabs.has(id);
+
+    const entityEntry = (x) => {
+      const o = x.o;
+      const l = x.links;
+      // game order: template prefab, decorations, membership prefabs,
+      // child prefab/entity pairs, node graph
+      const refs = [];
+      if (inLib(l.template)) refs.push(ref(1, l.template));
+      for (const d of x.decoIds) refs.push(ref(14, d));
+      const m = x.standalone ? null : l.member;
+      for (const dep of m ? [m.prefab, m.guid] : []) if (inLib(dep)) refs.push(ref(1, dep));
+      for (const k of l.children) {
+        if (inLib(k.prefabId)) refs.push(ref(1, k.prefabId));
+        if (k.objectId !== null && k.objectId !== o.id && this.level.objectById(k.objectId)) refs.push(ref(2, k.objectId));
+      }
+      if (x.graph !== null) refs.push(graphRef(x.graph));
+      const wrap = [bytesField(1, this._giaEntityBody(x)), varintField(2, GIA_ENTITY_TAIL)];
+      const kind = inLib(l.template) ? idx.prefabs.get(l.template).links.kind : null;
+      if (kind !== null) wrap.push(varintField(3, kind));
+      const builtin = l.builtin ?? o.prefabId;
+      if (builtin !== null) wrap.push(varintField(4, builtin));
+      return msgField(x.top ? 1 : 2, [identity(2, o.id), ...refs, stringField(3, x.name), varintField(5, 3), msgField(12, wrap)]);
+    };
+    const prefabEntry = (x) => {
+      const l = x.p.links;
+      const refs = x.decoIds.map((d) => ref(14, d));
+      const m = l.member;
+      for (const dep of m ? [m.prefab, m.guid] : []) if (inLib(dep)) refs.push(ref(1, dep));
+      for (const k of l.children) if (inLib(k.prefabId)) refs.push(ref(1, k.prefabId));
+      if (x.graph !== null) refs.push(graphRef(x.graph));
+      return msgField(2, [identity(1, x.p.id), ...refs, stringField(3, x.p.name), varintField(5, 1), msgField(11, [bytesField(1, this._giaPrefabBody(x))])]);
+    };
+    const decoEntry = (d) => msgField(2, [identity(14, d.id), stringField(3, d.name ?? ''), varintField(5, 28), msgField(21, [bytesField(1, d.field ? d.field.raw : d.raw)])]);
+    const graphEntry = (g) => msgField(2, [
+      msgField(1, [varintField(2, 5), varintField(4, g.guid)]),
+      stringField(3, g.name),
+      varintField(5, 9),
+      msgField(13, [bytesField(1, g.raw)]),
+    ]);
+
+    const top = plan.objects.map((x) => entityEntry(x.item));
+    for (const it of plan.items) {
+      if (it.t === 'entity') top.push(entityEntry(it));
+      else if (it.t === 'prefab') top.push(prefabEntry(it));
+      else if (it.t === 'deco') top.push(decoEntry(it.d));
+      else if (it.t === 'graph') top.push(graphEntry(it.g));
+    }
+    const rootVarint = (num) => {
+      const f = this.level.root.find((x) => x.num === num && x.wire === 0);
+      return f ? fieldVarint(f) : null;
+    };
+    const tagUid = uid ?? rootVarint(39) ?? GIA_TAG_UID;
+    const tagFile = fileId ?? rootVarint(1) ?? rootVarint(52) ?? GIA_TAG_FILE_ID;
+    top.push(stringField(3, `${tagUid}-${timestamp}-${tagFile}-\\${name}.gia`));
+    top.push(stringField(5, this.meta.gameVersion || GIA_DEFAULT_VERSION));
+
+    const payload = encodeMessage(top);
+    const out = new Uint8Array(24 + payload.length);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(0, out.length - 4);
+    GIA_HEADER_WORDS.forEach((w, i) => dv.setUint32(4 + 4 * i, w));
+    dv.setUint32(16, payload.length);
+    out.set(payload, 20);
+    dv.setUint32(20 + payload.length, GIA_TRAILER);
+    return out;
+  }
+
+  // An entry's own bytes, verbatim unless something has to give: a binding
+  // to a node graph that is not in the level is emptied, a decoration list
+  // naming ids that don't exist is trimmed to the real ones, and a member
+  // exported without its group loses its membership (A/62 emptied), the
+  // way the game writes standalone objects. `aNum`/`bNum` name the
+  // component list fields (5/6 on objects, 6/7 on library prefabs).
+  _giaBody(raw, aNum, bNum, links, { decoIds, missing, dropGraph, dropMember }) {
+    if (!missing && !dropGraph && !dropMember) return raw;
+    const ef = parseMessage(raw);
+    for (let j = 0; j < ef.length; j++) {
+      const cf = ef[j];
+      if (cf.wire !== 2 || (cf.num !== aNum && cf.num !== bNum)) continue;
+      let c;
+      try {
+        c = readComponent(cf, cf.num === aNum ? COMP_A_PAYLOAD : COMP_B_PAYLOAD);
+      } catch {
+        continue;
+      }
+      if (!c.payload) continue;
+      const replace = (payload) => msgField(cf.num, c.fields.map((f) => (f === c.payload ? payload : f)));
+      if (cf.num === bNum && dropGraph && c.type === NODE_GRAPH_BINDING) {
+        ef[j] = replace(bytesField(c.payloadFieldNum, EMPTY_BYTES));
+      } else if (cf.num === aNum && dropMember && c.type === GROUP_MEMBERSHIP) {
+        ef[j] = replace(bytesField(c.payloadFieldNum, EMPTY_BYTES));
+      } else if (cf.num === aNum && missing && c.type === DECO_LIST && c.payload.raw.length) {
+        const np = [];
+        for (const pf of parseMessage(c.payload.raw)) {
+          if (pf.num === 501 && pf.wire === 2) {
+            if (decoIds.length) np.push(bytesField(501, encodePackedVarints(decoIds)));
+          } else {
+            np.push(pf);
+          }
+        }
+        ef[j] = replace(bytesField(c.payloadFieldNum, encodeMessage(np)));
+      }
+    }
+    return encodeMessage(ef);
+  }
+  _giaEntityBody(x) {
+    return this._giaBody(x.o.field.raw, 5, 6, x.links, {
+      decoIds: x.decoIds,
+      missing: x.missing,
+      dropGraph: x.links.graphGuid !== null && x.graph === null,
+      dropMember: x.standalone && x.links.member !== null,
+    });
+  }
+  _giaPrefabBody(x) {
+    return this._giaBody(x.p.raw, 6, 7, x.p.links, {
+      decoIds: x.decoIds,
+      missing: x.missing,
+      dropGraph: x.p.links.graphGuid !== null && x.graph === null,
+      dropMember: false,
+    });
   }
 
   // ---------- undo / redo (exact byte-level state) ----------

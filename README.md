@@ -18,6 +18,10 @@ editor that changes its layout depending on which file type you load:
   group badge. Open it to see its member objects and move any or all of them
   out of the group. They stay exactly where they are, and the group object
   is removed once it is empty.
+- **`.gil` to `.gia`**: tick any world objects in a level and export them as
+  a `.gia` asset, decorations included. Objects placed from a prefab bring
+  the prefab along, and a prefab group brings its members. Every byte comes
+  straight from the level, so the result is what the game itself exports.
 
 In both modes, data you don't touch is kept byte for byte. That includes
 fields and entry types the tool doesn't know about.
@@ -172,11 +176,29 @@ Toolkit sites through the `miliastra-lang` key.
    is the game's zoom limit: extracted objects whose estimated world scale
    goes above 50 on any axis are listed with their parent and the affected
    axes. Continue or cancel. Cancel changes nothing.
-5. Undo and redo (buttons or Ctrl+Z / Ctrl+Y) restore the exact bytes, with
+5. **Export to .gia** sits under the Extraction bar. It takes the ticked
+   objects (the same ticks that pick extraction parents; with *Show all
+   objects* on, any object can be ticked, decorations or not) and writes them
+   to a `.gia` asset the way the game exports a placed object. A plain object
+   goes in with its attached decorations. An object placed from a prefab in
+   the level's library goes in together with that prefab, the prefab's
+   decorations and node graph, and whatever prefabs those refer to. A ticked
+   prefab group brings its members, each with its own decorations; ticks on
+   members are folded into the group. A member ticked without its group goes
+   in on its own with its group membership cleared, and the review dialog
+   says so. The bar counts objects, decorations and prefabs. A single object
+   is named after itself, several get the first name plus a count. The level
+   is not changed and nothing lands on the undo stack.
+
+   The only objects that stay behind are those placed from a prefab that is
+   missing from the level's library. The review dialog also lists objects
+   whose node graph is missing from the level (the binding is emptied) and
+   decoration lists naming ids that don't exist (they are trimmed).
+6. Undo and redo (buttons or Ctrl+Z / Ctrl+Y) restore the exact bytes, with
    no limit on the number of steps. Long operations show a progress bar and
    keep the page responsive. An 11 MB level with about 8,000 decorations
    splits in roughly a second.
-6. Download the modified `.gil`. A file downloaded without any edits is
+7. Download the modified `.gil`. A file downloaded without any edits is
    byte-identical to the input.
 
 In both modes the 3D viewer on the right shows the open model's or focused
@@ -242,6 +264,49 @@ including unknown fields, is kept exactly.
   bytes. Restoring a pre-edit snapshot reproduces the original file
   byte-identically.
 
+## How the .gia export works
+
+A `.gia` asset is a wrap around level bytes. Every one of the 484 entries in
+the game's own export of a placed prefab group (`Furina Prefab Group.gia`) is
+byte-identical to an entry of the level it was exported from (`Prefab
+Group.gil`), and the tool reproduces that file byte for byte from the level.
+The four kinds of entry map like this:
+
+- A world object (level root field 5) becomes a class-3 entity entry:
+  `1: {1: {2:1, 3:2, 4: id}, 2: refs…, 3: name, 5: 3, 12: {1: <object
+  bytes>, 2: 1402, [3: kind], 4: built-in template}}`.
+- A library prefab (root field 4) becomes a class-1 prefab entry:
+  `2: {1: {2:1, 3:1, 4: id}, 2: refs…, 3: name, 5: 1, 11: {1: <prefab
+  bytes>}}`.
+- A decoration (root field 27; field 1 holds a prefab's decorations, field 2
+  the placed objects' ones) becomes `2: {1: {2:1, 3:14, 4: id}, 3: name,
+  5: 28, 21: {1: <decoration bytes>}}`.
+- A node graph (root field 10, field 1) becomes a class-9 entry:
+  `2: {1: {2:5, 4: guid}, 3: name, 5: 9, 13: {1: <graph bytes>}}`.
+
+What each entry brings along, and in which order, follows the game's file.
+An object placed from a library prefab pulls in that prefab. A prefab pulls
+in its decorations, its node graph, the prefabs its group membership
+component (A/62) names and its group children (A/61). A prefab group instance
+writes its prefab and everything under it first, then its member entities in
+child-list order, each followed by its own decorations. References on an
+entity go template prefab, decorations, membership prefabs, child prefab and
+entity pairs, graph; on a prefab they go decorations, membership prefabs,
+child prefabs, graph. Ids stay as they are in the level, since both formats
+use the same id spaces, and the export tag takes the uid and file id the
+level stores (root fields 39 and 1) plus the level's engine version.
+
+Only three things can change inside an entry, and each is reported before
+the file is written: a binding to a node graph that is missing from the
+level is emptied, a decoration list naming ids that don't exist is trimmed
+to the real ones, and a group member exported without its group gets its
+membership component emptied, which is how the game stores standalone
+objects.
+
+The output loads back into the `.gia` side of this tool, where a group shows
+its members and a plain object's decoration positions match the level's
+composed world positions, and it splits and reorders like any other asset.
+
 ## Localization
 
 - `js/i18n.js` is a small system with no dependencies: `t(key, params)`,
@@ -280,6 +345,7 @@ including unknown fields, is kept exactly.
 | `tools/test-splitter.mjs` | .gia test suite (`node tools/test-splitter.mjs`) |
 | `tools/test-gil.mjs` | .gil engine test suite (`node tools/test-gil.mjs`) |
 | `tools/test-gil-group.mjs` | .gil prefab group test suite (`node tools/test-gil-group.mjs`) |
+| `tools/test-gil-export.mjs` | .gil to .gia export test suite (`node tools/test-gil-export.mjs`) |
 | `tools/gia-parser.js` | older geometry-aware parser, used only as an independent cross-check in tests |
 | `reference/` | format handoff docs and sample .gia/.gil fixtures |
 
@@ -307,6 +373,7 @@ jsDelivr CDN through an import map, and it is only used by the 3D viewer.
 node tools/test-splitter.mjs
 node tools/test-gil.mjs
 node tools/test-gil-group.mjs
+node tools/test-gil-export.mjs
 node tools/test-reparent.mjs
 ```
 
@@ -327,6 +394,18 @@ when absent) and checks: group detection and member order, partial and full
 ungrouping with only the membership and child-list bytes changing, registry
 cleanup, the prefab library staying untouched, stepwise ungrouping matching a
 single full ungroup byte for byte, exact undo, and reloaded output.
+
+`test-gil-export.mjs` exports objects from the `.gil` fixtures and checks the
+result against the game's own exports: container words and trailer, entry
+and wrapper layout, identities and references, verbatim object and
+decoration bytes, the export tag and version string, and, when `Prefab
+Group.gil` and `Furina Prefab Group.gia` are present, byte identity between
+the tool's export of the placed group and the game's file. It then loads the
+files with `GiaSession` and the legacy parser, compares decoration world
+positions with the level's, splits and moves decorations on the export, and
+covers library-prefab instances, a member exported without its group,
+decoration-less objects, missing prefabs, missing graphs and stale
+decoration ids.
 
 `test-gil.mjs` runs against the sample `.gil` fixtures and checks: byte for
 byte round trips, split output against game-authored standalone counterparts

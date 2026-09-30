@@ -790,14 +790,14 @@ body.mode-gil .model-row.nested .model-name { font-weight: 500; }
 .list-msg .sub { font-size: 11.5px; opacity: 0.8; }
 
 /* ---------- extraction ops bar (.gil) ---------- */
-#gil-ops {
+#gil-ops, #gil-export {
   margin: 0;
   padding: 8px 18px 10px;
   border: none;
   border-bottom: 1px solid var(--border-soft);
   background: rgba(23, 27, 37, 0.6);
 }
-#gil-ops legend {
+#gil-ops legend, #gil-export legend {
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
