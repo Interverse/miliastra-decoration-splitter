@@ -187,6 +187,10 @@ export default {
   'gil.op.labelRename': 'Renommer {n} décoration(s)',
   'gil.op.labelMove': 'Déplacer {n} décoration(s)',
   'gil.op.labelUngroup': 'Dissocier {n} objet(s)',
+  'gil.group.hint': 'Cet objet est un groupe de prefabs. Ses membres sont listés ici et imbriqués sous lui dans la liste des objets. Cocher un membre à l’un ou l’autre endroit le sélectionne. « Dégrouper la sélection » libère les membres cochés, « Tout dégrouper » libère tous les membres. Les membres libérés gardent leur placement dans le monde, et le groupe est supprimé une fois vide.',
+  'gil.group.none': 'Aucun membre coché.',
+  'tree.collapse': 'Replier le groupe',
+  'tree.expand': 'Déplier le groupe',
   'gil.w.groupKept': 'Le groupe vide « {name} » ({id}) a été conservé, car il contient encore des décorations, appartient à un autre groupe ou est référencé ailleurs dans le niveau.',
   'gil.err.moveLimit': 'Un objet parent peut contenir au plus {max} décorations. Ce déplacement porterait « {name} » à {total}.',
   // ---- entity groups (ungroup) ----

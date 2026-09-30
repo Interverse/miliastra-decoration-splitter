@@ -178,6 +178,10 @@ export default {
   'gil.op.labelRename': '장식 {n}개 이름 변경',
   'gil.op.labelMove': '장식 {n}개 이동',
   'gil.op.labelUngroup': '오브젝트 {n}개 그룹 해제',
+  'gil.group.hint': '이 오브젝트는 프리팹 그룹입니다. 멤버는 여기에 나열되며 오브젝트 목록에서는 이 아래에 중첩되어 있습니다. 두 곳 중 어디에서든 멤버를 체크하면 선택됩니다. “선택 항목 그룹 해제”는 체크된 멤버를 풀어 주고, “모두 그룹 해제”는 모든 멤버를 풀어 줍니다. 풀린 멤버는 월드 내 배치를 유지하며, 그룹은 비면 제거됩니다.',
+  'gil.group.none': '체크된 멤버가 없습니다.',
+  'tree.collapse': '그룹 접기',
+  'tree.expand': '그룹 펼치기',
   'gil.w.groupKept': '빈 그룹 “{name}”({id})은(는) 아직 장식을 포함하고 있거나, 다른 그룹에 속해 있거나, 레벨의 다른 곳에서 참조되고 있어 남겨 두었습니다.',
   'gil.err.moveLimit': '부모 오브젝트 하나에는 장식을 최대 {max}개까지 담을 수 있습니다. 이 이동을 하면 “{name}”은(는) {total}개가 됩니다.',
   // ---- entity groups (ungroup) ----

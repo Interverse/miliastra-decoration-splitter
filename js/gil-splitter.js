@@ -251,6 +251,11 @@ export class GilSession {
     return this._groupMap().groups.has(objectId);
   }
 
+  /** Id of the prefab group this object belongs to, or null. */
+  memberGroup(objectId) {
+    return this._groupMap().memberOf.get(objectId) ?? null;
+  }
+
   groupCount() {
     return this._groupMap().groups.size;
   }

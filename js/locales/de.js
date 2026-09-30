@@ -183,6 +183,10 @@ export default {
   'gil.op.labelRename': '{n} Dekoration(en) umbenennen',
   'gil.op.labelMove': '{n} Dekoration(en) verschieben',
   'gil.op.labelUngroup': 'Gruppierung von {n} Objekt(en) aufheben',
+  'gil.group.hint': 'Dieses Objekt ist eine Prefab-Gruppe. Seine Mitglieder werden hier aufgeführt und sind in der Objektliste darunter eingerückt. Ein Mitglied an einer der beiden Stellen anzuhaken wählt es aus. „Auswahl aus Gruppe lösen“ gibt die angehakten Mitglieder frei, „Alle aus Gruppe lösen“ gibt jedes Mitglied frei. Freigegebene Mitglieder behalten ihre Position in der Welt, und die Gruppe wird entfernt, sobald sie leer ist.',
+  'gil.group.none': 'Keine Mitglieder angehakt.',
+  'tree.collapse': 'Gruppe einklappen',
+  'tree.expand': 'Gruppe ausklappen',
   'gil.w.groupKept': 'Die leere Gruppe „{name}“ ({id}) wurde behalten, weil sie noch Dekorationen enthält, zu einer anderen Gruppe gehört oder an anderer Stelle im Level referenziert wird.',
   'gil.err.moveLimit': 'Ein Elternobjekt kann höchstens {max} Dekorationen aufnehmen. Diese Verschiebung würde „{name}“ auf {total} bringen.',
   // ---- entity groups (ungroup) ----

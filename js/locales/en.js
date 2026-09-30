@@ -210,6 +210,10 @@ export default {
   'gil.op.labelRename': 'Rename {n} decoration(s)',
   'gil.op.labelMove': 'Move {n} decoration(s)',
   'gil.op.labelUngroup': 'Ungroup {n} object(s)',
+  'gil.group.hint': 'This object is a prefab group. Its members are listed here and nested under it in the object list, and ticking one in either place selects it. Ungroup selected frees the ticked members, Ungroup all frees every member. Freed members keep their world placement, and the group is removed once it is empty.',
+  'gil.group.none': 'No members ticked.',
+  'tree.collapse': 'Collapse group',
+  'tree.expand': 'Expand group',
   'gil.w.groupKept': 'The empty group “{name}” ({id}) was kept because it still holds decorations, belongs to another group, or is referenced elsewhere in the level.',
   'gil.err.moveLimit': 'A parent object can hold at most {max} decorations. This move would give “{name}” {total}.',
 };

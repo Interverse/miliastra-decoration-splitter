@@ -178,6 +178,10 @@ export default {
   'gil.op.labelRename': '{n} dekorasyonu yeniden adlandır',
   'gil.op.labelMove': '{n} dekorasyonu taşı',
   'gil.op.labelUngroup': '{n} nesnenin grubunu çöz',
+  'gil.group.hint': 'Bu nesne bir prefab grubudur. Üyeleri burada listelenir ve nesne listesinde onun altında iç içe yer alır. İki yerden birinde bir üyeyi işaretlemek onu seçer. “Seçili olanları gruptan çıkar” işaretli üyeleri serbest bırakır, “Tümünü gruptan çıkar” tüm üyeleri serbest bırakır. Serbest bırakılan üyeler dünyadaki yerlerini korur ve grup boşaldığında kaldırılır.',
+  'gil.group.none': 'İşaretli üye yok.',
+  'tree.collapse': 'Grubu daralt',
+  'tree.expand': 'Grubu genişlet',
   'gil.w.groupKept': 'Boş grup “{name}” ({id}) korundu, çünkü hâlâ dekorasyon içeriyor, başka bir gruba ait veya seviyenin başka yerlerinde referans alınıyor.',
   'gil.err.moveLimit': 'Bir üst nesne en fazla {max} dekorasyon barındırabilir. Bu taşıma “{name}” nesnesini {total} dekorasyona çıkarır.',
   // ---- entity groups (ungroup) ----

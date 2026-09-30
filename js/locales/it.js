@@ -183,6 +183,10 @@ export default {
   'gil.op.labelRename': 'Rinomina {n} decorazione/i',
   'gil.op.labelMove': 'Sposta {n} decorazione/i',
   'gil.op.labelUngroup': 'Separa {n} oggetto/i dal gruppo',
+  'gil.group.hint': 'Questo oggetto è un gruppo di prefab. I suoi membri sono elencati qui e annidati sotto di esso nell’elenco degli oggetti. Spuntare un membro in uno dei due punti lo seleziona. «Separa dal gruppo i selezionati» libera i membri spuntati, «Separa tutti dal gruppo» libera tutti i membri. I membri liberati mantengono la loro posizione nel mondo, e il gruppo viene rimosso quando resta vuoto.',
+  'gil.group.none': 'Nessun membro spuntato.',
+  'tree.collapse': 'Comprimi gruppo',
+  'tree.expand': 'Espandi gruppo',
   'gil.w.groupKept': 'Il gruppo vuoto «{name}» ({id}) è stato mantenuto perché contiene ancora decorazioni, appartiene a un altro gruppo o è referenziato altrove nel livello.',
   'gil.err.moveLimit': 'Un oggetto padre può contenere al massimo {max} decorazioni. Questo spostamento porterebbe «{name}» a {total}.',
   // ---- entity groups (ungroup) ----

@@ -178,6 +178,10 @@ export default {
   'gil.op.labelRename': 'Mengganti nama {n} dekorasi',
   'gil.op.labelMove': 'Memindahkan {n} dekorasi',
   'gil.op.labelUngroup': 'Melepas {n} objek dari grup',
+  'gil.group.hint': 'Objek ini adalah grup prefab. Anggotanya tercantum di sini dan bersarang di bawahnya dalam daftar objek. Mencentang anggota di salah satu tempat akan memilihnya. “Pisahkan grup pilihan” membebaskan anggota yang dicentang, “Pisahkan semua” membebaskan setiap anggota. Anggota yang dibebaskan tetap di posisinya dalam dunia, dan grup dihapus setelah kosong.',
+  'gil.group.none': 'Belum ada anggota yang dicentang.',
+  'tree.collapse': 'Ciutkan grup',
+  'tree.expand': 'Bentangkan grup',
   'gil.w.groupKept': 'Grup kosong “{name}” ({id}) dipertahankan karena masih berisi dekorasi, termasuk dalam grup lain, atau dirujuk di tempat lain dalam level.',
   'gil.err.moveLimit': 'Satu objek induk hanya bisa menampung maksimal {max} dekorasi. Pemindahan ini akan membuat “{name}” berisi {total}.',
   // ---- entity groups (ungroup) ----

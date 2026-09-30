@@ -183,6 +183,10 @@ export default {
   'gil.op.labelRename': 'Renombrar {n} decoración(es)',
   'gil.op.labelMove': 'Mover {n} decoración(es)',
   'gil.op.labelUngroup': 'Desagrupar {n} objeto(s)',
+  'gil.group.hint': 'Este objeto es un grupo de prefabs. Sus miembros se listan aquí y aparecen anidados bajo él en la lista de objetos. Marcar uno en cualquiera de los dos lugares lo selecciona. «Desagrupar seleccionados» libera a los miembros marcados, «Desagrupar todo» libera a todos los miembros. Los miembros liberados conservan su posición en el mundo, y el grupo se elimina cuando queda vacío.',
+  'gil.group.none': 'No hay miembros marcados.',
+  'tree.collapse': 'Contraer grupo',
+  'tree.expand': 'Expandir grupo',
   'gil.w.groupKept': 'El grupo vacío «{name}» ({id}) se conservó porque todavía contiene decoraciones, pertenece a otro grupo o está referenciado en otras partes del nivel.',
   'gil.err.moveLimit': 'Un objeto padre puede contener como máximo {max} decoraciones. Este movimiento dejaría «{name}» con {total}.',
   // ---- entity groups (ungroup) ----

@@ -139,11 +139,19 @@ Toolkit sites through the `miliastra-lang` key.
      decoration of the checked parents.
 
    Prefab groups: a world object that is a prefab group instance (it lists
-   member objects in its group component) appears in the list with a
+   member objects in its group component) appears in the object list with a
    **group** badge and its member count, even when it holds no decorations
-   of its own. Click it and the table lists the members in group order with
-   their decoration counts, ids, prefabs and collision state. Select some
-   and hit **Ungroup selected**, or use **Ungroup all**. A freed member keeps
+   of its own. The list is a tree: the members sit nested under their group
+   in group order, and a fold toggle on the group row hides or shows them.
+   Clicking a member shows its decorations as usual. Clicking the group
+   shows the ungroup bar and lists the members in the table with their
+   decoration counts, ids, prefabs and collision state, and the 3D viewer
+   shows one point per member. The table rows and the tree rows share one
+   tick state, so ticking a member in either place selects it, and
+   box-selecting in the viewer ticks members too. Hit **Ungroup selected**,
+   or use **Ungroup all**. Ticked
+   members that hold decorations still count as extraction parents for
+   *Separate All Decorations from Selected Parents*. A freed member keeps
    every byte except its emptied group membership component, which is how
    the game stores standalone objects, and its placement does not change
    because member transforms are stored in world space. The group's child

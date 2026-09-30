@@ -178,6 +178,10 @@ export default {
   'gil.op.labelRename': 'Đổi tên {n} vật trang trí',
   'gil.op.labelMove': 'Di chuyển {n} vật trang trí',
   'gil.op.labelUngroup': 'Tách nhóm {n} vật thể',
+  'gil.group.hint': 'Vật thể này là một nhóm prefab. Thành viên của nó được liệt kê ở đây và lồng bên dưới nó trong danh sách vật thể. Đánh dấu một thành viên ở một trong hai nơi sẽ chọn nó. “Tách nhóm mục đã chọn” giải phóng các thành viên đã đánh dấu, “Tách nhóm tất cả” giải phóng mọi thành viên. Thành viên được giải phóng giữ nguyên vị trí trong thế giới, và nhóm bị xóa khi đã trống.',
+  'gil.group.none': 'Chưa đánh dấu thành viên nào.',
+  'tree.collapse': 'Thu gọn nhóm',
+  'tree.expand': 'Mở rộng nhóm',
   'gil.w.groupKept': 'Nhóm trống “{name}” ({id}) được giữ lại vì vẫn còn chứa vật trang trí, thuộc về một nhóm khác hoặc được tham chiếu ở nơi khác trong màn chơi.',
   'gil.err.moveLimit': 'Một vật thể cha chỉ chứa tối đa {max} vật trang trí. Lần chuyển này sẽ khiến “{name}” có {total}.',
   // ---- entity groups (ungroup) ----

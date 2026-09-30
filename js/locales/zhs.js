@@ -178,6 +178,10 @@ export default {
   'gil.op.labelRename': '重命名 {n} 个装饰',
   'gil.op.labelMove': '移动 {n} 个装饰',
   'gil.op.labelUngroup': '取消 {n} 个物体的分组',
+  'gil.group.hint': '此物体是一个预制体组。它的成员列在此处，并嵌套在物体列表中它的下方。在任一处勾选成员即可选中它。“解组所选”会释放已勾选的成员，“全部解组”会释放所有成员。释放后的成员保留其世界位置，组为空后会被移除。',
+  'gil.group.none': '未勾选任何成员。',
+  'tree.collapse': '折叠组',
+  'tree.expand': '展开组',
   'gil.w.groupKept': '空分组“{name}”（{id}）仍包含装饰、属于其他分组或在关卡其他位置被引用，因此已保留。',
   'gil.err.moveLimit': '一个父物体最多可容纳 {max} 个装饰。此次移动会使“{name}”达到 {total} 个。',
   // ---- entity groups (ungroup) ----
