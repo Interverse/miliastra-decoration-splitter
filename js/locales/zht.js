@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': '重新排序 {n} 個裝飾',
   'gil.op.labelRename': '重新命名 {n} 個裝飾',
   'gil.op.labelMove': '移動 {n} 個裝飾',
+  'gil.op.labelUngroup': '取消 {n} 個物件的群組',
+  'gil.w.groupKept': '空群組「{name}」（{id}）仍包含裝飾、屬於其他群組或在關卡其他位置被引用，因此已保留。',
   'gil.err.moveLimit': '一個父物件最多可容納 {max} 個裝飾。此次移動會使「{name}」達到 {total} 個。',
   // ---- entity groups (ungroup) ----
   'tag.group': '實體組',

@@ -182,6 +182,8 @@ export default {
   'gil.op.labelReorder': '{n} Dekoration(en) neu anordnen',
   'gil.op.labelRename': '{n} Dekoration(en) umbenennen',
   'gil.op.labelMove': '{n} Dekoration(en) verschieben',
+  'gil.op.labelUngroup': 'Gruppierung von {n} Objekt(en) aufheben',
+  'gil.w.groupKept': 'Die leere Gruppe „{name}“ ({id}) wurde behalten, weil sie noch Dekorationen enthält, zu einer anderen Gruppe gehört oder an anderer Stelle im Level referenziert wird.',
   'gil.err.moveLimit': 'Ein Elternobjekt kann höchstens {max} Dekorationen aufnehmen. Diese Verschiebung würde „{name}“ auf {total} bringen.',
   // ---- entity groups (ungroup) ----
   'tag.group': 'Gruppe',

@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': 'デコレーション {n} 個を並べ替え',
   'gil.op.labelRename': 'デコレーション {n} 個の名前を変更',
   'gil.op.labelMove': 'デコレーション {n} 個を移動',
+  'gil.op.labelUngroup': 'オブジェクト {n} 個のグループを解除',
+  'gil.w.groupKept': '空のグループ「{name}」({id}) は、まだデコレーションを含んでいるか、別のグループに属しているか、レベル内の他の場所から参照されているため、残しました。',
   'gil.err.moveLimit': '1 つの親オブジェクトに入れられるデコレーションは最大 {max} 個です。この移動をすると「{name}」は {total} 個になります。',
   // ---- entity groups (ungroup) ----
   'tag.group': 'グループ',

@@ -87,6 +87,9 @@ const state = {
     active: null,       // focused parent id (its decorations fill the table)
     decoSel: new Set(), // selected decoration ids; persists across parents
     decoAnchor: null,   // shift-range anchor in the decoration table
+    groupView: null,    // id of the prefab group whose members fill the table, or null
+    memberSel: new Set(), // selected member object ids in the group view
+    memberAnchor: null, // shift-range anchor in the member list
     pointIds: [],       // viewer point index -> decoration id (focused parent)
     viewerParent: null, // parent the viewer currently shows
     showAll: false,
@@ -253,6 +256,9 @@ function startGilSession(session) {
   g.active = null;
   g.decoSel = new Set();
   g.decoAnchor = null;
+  g.groupView = null;
+  g.memberSel = new Set();
+  g.memberAnchor = null;
   g.pointIds = [];
   g.viewerParent = null;
   g.search = '';
@@ -674,9 +680,15 @@ function toggleRow(i) {
 
 els.btnSelectAll.addEventListener('click', () => {
   if (state.mode === 'gil') {
+    const g = state.gil;
+    if (g.groupView !== null) {
+      for (const tr of state.rows) g.memberSel.add(Number(tr.dataset.memberId));
+      syncGilGroupSelection();
+      return;
+    }
     const parent = effectiveGilParent();
     if (!parent) return;
-    for (const did of parent.decorationIds) state.gil.decoSel.add(did);
+    for (const did of parent.decorationIds) g.decoSel.add(did);
     syncGilSelection();
     return;
   }
@@ -685,7 +697,13 @@ els.btnSelectAll.addEventListener('click', () => {
 });
 els.btnSelectNone.addEventListener('click', () => {
   if (state.mode === 'gil') {
-    state.gil.decoSel.clear();
+    const g = state.gil;
+    if (g.groupView !== null) {
+      g.memberSel.clear();
+      syncGilGroupSelection();
+      return;
+    }
+    g.decoSel.clear();
     syncGilSelection();
     return;
   }
@@ -921,16 +939,23 @@ function ensureViewer() {
 function viewerSelIndices() {
   if (state.mode !== 'gil') return state.sel;
   const g = state.gil;
+  const selected = g.groupView !== null ? g.memberSel : g.decoSel;
   const out = new Set();
-  g.pointIds.forEach((id, i) => { if (g.decoSel.has(id)) out.add(i); });
+  g.pointIds.forEach((id, i) => { if (selected.has(id)) out.add(i); });
   return out;
+}
+
+// points shown for a .gil object: its decorations, or, for a prefab group,
+// its member objects
+function gilViewerPoints(id) {
+  const g = state.gil;
+  if (id === null || id === undefined) return [];
+  return g.session.isGroup(id) ? g.session.groupMemberPoints(id) : g.session.decorationPoints(id);
 }
 
 function updateViewerStats() {
   const gil = state.mode === 'gil';
-  const pts = gil
-    ? state.gil.session.decorationPoints(state.gil.viewerParent ?? -1)
-    : giaViewerPoints();
+  const pts = gil ? gilViewerPoints(state.gil.viewerParent) : giaViewerPoints();
   const sel = viewerSelIndices();
   const n = sel.size;
   els.vStats.textContent = `${num(n)} / ${num(pts.length)}`;
@@ -1131,6 +1156,7 @@ els.btnSplit.addEventListener('click', () => {
 // group stays with the rest. Freed members appear as models right after
 // the group and default to exported.
 function doUngroup(all) {
+  if (state.mode === 'gil') return doGilUngroup(all);
   const model = state.session.models[state.currentModel];
   if (!model?.isGroup) return;
   const members = state.session.groupMembers(state.currentModel);
@@ -1267,14 +1293,15 @@ function formatGilIssue(issue, kind) {
 
 // The decoration table shows the focused parent (viewing is independent of
 // the parent CHECKBOX selection), falling back to the most recently checked
-// parent, else nothing.
+// parent, else nothing. A focused prefab group counts even without
+// decorations: it opens the member view.
 function effectiveGilParent() {
   const g = state.gil;
   if (!g.session) return null;
   const L = g.session.level;
   if (g.active !== null) {
     const o = L.objectById(g.active);
-    if (o && o.decorationIds.length) return o;
+    if (o && (o.decorationIds.length || g.session.isGroup(o.id))) return o;
   }
   if (g.parentSel.size) return L.objectById([...g.parentSel].pop()) ?? null;
   return null;
@@ -1343,7 +1370,7 @@ function makeGilObjRow(o) {
   const g = state.gil;
   const row = document.createElement('div');
   row.className = 'model-row'
-    + (o.eligible ? '' : ' no-deco')
+    + (o.eligible || o.isGroup ? '' : ' no-deco')
     + (g.parentSel.has(o.id) ? ' checked' : '')
     + (o.id === g.active ? ' active' : '');
   row.dataset.objId = o.id;
@@ -1353,6 +1380,7 @@ function makeGilObjRow(o) {
   cb.className = 'model-export';
   cb.checked = g.parentSel.has(o.id);
   cb.disabled = !o.eligible;
+  if (!o.eligible) cb.style.visibility = 'hidden'; // a group without decorations is not an extraction parent
 
   const name = document.createElement('span');
   name.className = 'model-name';
@@ -1364,11 +1392,26 @@ function makeGilObjRow(o) {
   const oid = document.createElement('span');
   oid.className = 'model-id';
   oid.textContent = o.id ?? '?';
-  const count = document.createElement('span');
-  count.className = 'model-count';
-  count.textContent = num(o.count);
-  count.title = tn('model.countTip', o.count);
-  badges.append(oid, count);
+  badges.appendChild(oid);
+  if (o.isGroup) {
+    const tag = document.createElement('span');
+    tag.className = 'tag-group';
+    tag.textContent = t('tag.group');
+    tag.title = t('tag.groupTip');
+    badges.appendChild(tag);
+    const members = document.createElement('span');
+    members.className = 'model-count';
+    members.textContent = num(o.memberCount);
+    members.title = tn('model.membersTip', o.memberCount);
+    badges.appendChild(members);
+  }
+  if (o.count || !o.isGroup) {
+    const count = document.createElement('span');
+    count.className = 'model-count';
+    count.textContent = num(o.count);
+    count.title = tn('model.countTip', o.count);
+    badges.appendChild(count);
+  }
   if (gilRenderCtx.selParents.has(o.id)) {
     const dot = document.createElement('span');
     dot.className = 'sel-dot';
@@ -1405,6 +1448,16 @@ function makeGilObjRow(o) {
     applyGilMoveToParent(indices, o.id);
   });
 
+  if (!o.eligible && o.isGroup) {
+    // a group holding no decorations can only be opened (member view), not
+    // checked as an extraction parent
+    row.addEventListener('click', () => {
+      g.active = o.id;
+      renderGilModels();
+      renderGilDetail();
+      renderGilOps();
+    });
+  }
   if (o.eligible) {
     row.addEventListener('click', (e) => {
       if (e.target !== cb) onGilParentClick(o.id, e);
@@ -1528,6 +1581,14 @@ function renderGilDetail() {
   els.decBody.textContent = '';
   state.rows = [];
 
+  const groupView = parent && g.session.isGroup(parent.id) ? parent.id : null;
+  if (groupView !== g.groupView) {
+    g.memberSel = new Set();
+    g.memberAnchor = null;
+  }
+  g.groupView = groupView;
+  els.detailPanel.classList.toggle('group-view', groupView !== null);
+
   if (!parent) {
     els.detailName.textContent = t('gil.deco.placeholder');
     els.detailCount.textContent = '';
@@ -1535,6 +1596,7 @@ function renderGilDetail() {
     syncGilSelection();
     return;
   }
+  if (groupView !== null) return renderGilGroupDetail(parent);
 
   if (parent.id !== g.viewerParent) g.decoAnchor = null; // ranges never span a parent switch
 
@@ -1624,6 +1686,175 @@ function renderGilDetail() {
   els.decBody.appendChild(frag);
   updateGilViewerData(parent);
   syncGilSelection();
+}
+
+// Prefab group view: the table lists the group's member objects (child-list
+// order) instead of decorations, and the ungroup bar replaces the split
+// bar. Members are ordinary world objects, so their decoration counts,
+// prefab ids and collision state show as usual.
+function renderGilGroupDetail(group) {
+  const g = state.gil;
+  const members = g.session.groupMembers(group.id);
+  const existing = new Set(members.map((m) => m.id));
+  for (const id of [...g.memberSel]) if (!existing.has(id)) g.memberSel.delete(id);
+
+  els.detailName.textContent = group.name || t('model.unnamed');
+  els.detailCount.textContent = tn('group.members', members.length);
+  syncGilSortHeaders();
+
+  const frag = document.createDocumentFragment();
+  for (const m of members) {
+    const tr = document.createElement('tr');
+    tr.dataset.index = m.index;
+    tr.dataset.memberId = m.id;
+
+    const tdDrag = document.createElement('td');
+    tdDrag.className = 'col-drag';
+
+    const tdCheck = document.createElement('td');
+    tdCheck.className = 'col-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.tabIndex = -1;
+    cb.addEventListener('click', (e) => { e.stopPropagation(); toggleGilMember(m.id); });
+    tdCheck.appendChild(cb);
+
+    const tdIdx = document.createElement('td');
+    tdIdx.className = 'num muted';
+    tdIdx.textContent = m.index;
+
+    const tdName = document.createElement('td');
+    tdName.className = 'dec-name';
+    if (m.name) tdName.textContent = m.name;
+    else { tdName.textContent = '-'; tdName.classList.add('muted'); }
+    const count = document.createElement('span');
+    count.className = 'member-count';
+    count.textContent = num(m.count);
+    count.title = tn('model.countTip', m.count);
+    tdName.appendChild(count);
+    if (m.isGroup) {
+      const tag = document.createElement('span');
+      tag.className = 'tag-group';
+      tag.textContent = t('tag.group');
+      tag.title = tn('model.membersTip', m.memberCount);
+      tdName.appendChild(tag);
+    }
+
+    const tdId = document.createElement('td');
+    tdId.className = 'num dec-id';
+    tdId.textContent = m.id;
+
+    const tdPrefab = document.createElement('td');
+    tdPrefab.className = 'num dec-id';
+    tdPrefab.textContent = m.prefabId ?? '-';
+    tdPrefab.title = t('gil.col.prefabTip');
+
+    const tdColl = document.createElement('td');
+    tdColl.className = m.collision ? 'coll-on' : 'coll-off';
+    tdColl.textContent = m.collision ? t('gil.collision.on') : t('gil.collision.off');
+
+    tr.append(tdDrag, tdCheck, tdIdx, tdName, tdId, tdPrefab, tdColl);
+    tr.addEventListener('click', (e) => onGilMemberClick(m.id, e));
+    state.rows.push(tr);
+    frag.appendChild(tr);
+  }
+  els.decBody.appendChild(frag);
+  updateGilViewerData(group);
+  syncGilGroupSelection();
+}
+
+function toggleGilMember(id) {
+  const g = state.gil;
+  if (g.memberSel.has(id)) g.memberSel.delete(id);
+  else g.memberSel.add(id);
+  g.memberAnchor = id;
+  syncGilGroupSelection();
+}
+
+// same toggle / shift-invert semantics as the decoration table
+function onGilMemberClick(id, e) {
+  const g = state.gil;
+  if (e.shiftKey && g.memberAnchor !== null) {
+    const order = state.rows.map((tr) => Number(tr.dataset.memberId));
+    const a = order.indexOf(g.memberAnchor);
+    const b = order.indexOf(id);
+    if (a !== -1 && b !== -1) {
+      for (const x of order.slice(Math.min(a, b), Math.max(a, b) + 1)) {
+        if (x === g.memberAnchor) continue;
+        if (g.memberSel.has(x)) g.memberSel.delete(x);
+        else g.memberSel.add(x);
+      }
+    }
+    syncGilGroupSelection();
+    return;
+  }
+  toggleGilMember(id);
+}
+
+// rows, viewer and the ungroup bar follow the member selection; the
+// extraction bar keeps reflecting the (independent) decoration selection
+function syncGilGroupSelection() {
+  const g = state.gil;
+  for (const tr of state.rows) {
+    const sel = g.memberSel.has(Number(tr.dataset.memberId));
+    tr.classList.toggle('selected', sel);
+    tr.querySelector('input').checked = sel;
+  }
+  if (state.viewer) {
+    state.viewer.setSelection(viewerSelIndices());
+    updateViewerStats();
+  }
+  const n = g.memberSel.size;
+  const group = g.session.level.objectById(g.groupView);
+  els.btnUngroupSel.disabled = n === 0;
+  els.btnUngroupSel.textContent = n ? t('group.buttonN', { n: num(n) }) : t('group.button');
+  if (n === 0) {
+    els.groupInfo.innerHTML = escapeHtml(t('group.none'));
+    els.groupInfo.classList.remove('armed');
+  } else {
+    els.groupInfo.innerHTML = t('group.info', {
+      n: num(n),
+      total: num(state.rows.length),
+      name: escapeHtml(group?.name || t('model.unnamed')),
+    });
+    els.groupInfo.classList.add('armed');
+  }
+  updateGilSelDots();
+  renderGilOps();
+  els.btnRenameSel.disabled = true; // members are world objects, not renamable here
+}
+
+// Move members out of the viewed prefab group. `all` frees every member
+// (and removes the group when nothing else needs it); otherwise the
+// selected rows leave and the group keeps the rest.
+function doGilUngroup(all) {
+  const g = state.gil;
+  const group = g.groupView !== null ? g.session.level.objectById(g.groupView) : null;
+  if (!group) return;
+  const ids = all ? null : [...g.memberSel];
+  if (!all && !ids.length) return;
+  try {
+    const res = g.session.ungroup(group.id, ids);
+    g.memberSel = new Set();
+    g.memberAnchor = null;
+    if (res.removedGroup) {
+      // the group is gone, so show the first freed member that has something to list
+      g.parentSel.delete(group.id);
+      const L = g.session.level;
+      g.active = res.freedIds.find((id) => {
+        const o = L.objectById(id);
+        return o && (o.decorationIds.length || g.session.isGroup(id));
+      }) ?? null;
+    }
+    g.viewerParent = null; // re-frame on the next render
+    renderAll();
+    let msg = tn('toast.ungrouped', res.count, { name: group.name || t('model.unnamed') });
+    if (res.kept) msg += ' ' + t('gil.w.groupKept', { name: group.name || String(group.id), id: group.id });
+    toast(msg, true);
+  } catch (err) {
+    console.error(err);
+    toast(errMsg(err, 'err.ungroupFail'));
+  }
 }
 
 function syncGilSortHeaders() {
@@ -1716,7 +1947,7 @@ function updateGilViewerData(parent) {
   const id = parent ? parent.id : null;
   const frame = g.viewerParent !== id;
   g.viewerParent = id;
-  const points = id !== null ? g.session.decorationPoints(id) : [];
+  const points = gilViewerPoints(id);
   g.pointIds = points.map((p) => p.guid);
   state.viewer.setData(points, { frame });
   applySearch();
@@ -1728,6 +1959,16 @@ function updateGilViewerData(parent) {
 function gilViewerSelect(indices, mode) {
   const g = state.gil;
   const ids = indices.map((i) => g.pointIds[i]).filter((x) => x !== undefined);
+  if (g.groupView !== null) {
+    // member view: the points are the group's members
+    if (mode === 'replace') g.memberSel = new Set(ids);
+    else if (mode === 'add') ids.forEach((d) => g.memberSel.add(d));
+    else if (mode === 'subtract') ids.forEach((d) => g.memberSel.delete(d));
+    else ids.forEach((d) => (g.memberSel.has(d) ? g.memberSel.delete(d) : g.memberSel.add(d)));
+    g.memberAnchor = ids.length ? ids[0] : null;
+    syncGilGroupSelection();
+    return;
+  }
   if (mode === 'replace') {
     g.decoSel = new Set(ids);
   } else if (mode === 'add') {
@@ -1778,7 +2019,7 @@ function renderGilOps() {
 
   els.btnGilUndo.disabled = !g.session.canUndo;
   els.btnGilRedo.disabled = !g.session.canRedo;
-  els.btnRenameSel.disabled = nSel === 0;
+  els.btnRenameSel.disabled = nSel === 0 || g.groupView !== null;
 }
 
 // ---------- extraction operations ----------
@@ -2083,6 +2324,7 @@ for (const th of document.querySelectorAll('#dec-table th[data-sort]')) {
   th.addEventListener('click', () => {
     if (state.mode !== 'gil') return;
     const g = state.gil;
+    if (g.groupView !== null) return; // member view always shows child-list order
     const key = th.dataset.sort;
     if (g.decoSort === key) {
       if (g.decoSortAsc) g.decoSortAsc = false;

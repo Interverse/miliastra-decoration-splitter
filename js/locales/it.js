@@ -182,6 +182,8 @@ export default {
   'gil.op.labelReorder': 'Riordina {n} decorazione/i',
   'gil.op.labelRename': 'Rinomina {n} decorazione/i',
   'gil.op.labelMove': 'Sposta {n} decorazione/i',
+  'gil.op.labelUngroup': 'Separa {n} oggetto/i dal gruppo',
+  'gil.w.groupKept': 'Il gruppo vuoto «{name}» ({id}) è stato mantenuto perché contiene ancora decorazioni, appartiene a un altro gruppo o è referenziato altrove nel livello.',
   'gil.err.moveLimit': 'Un oggetto padre può contenere al massimo {max} decorazioni. Questo spostamento porterebbe «{name}» a {total}.',
   // ---- entity groups (ungroup) ----
   'tag.group': 'gruppo',

@@ -25,6 +25,7 @@ import {
   varintField,
   f32Field,
   encodePackedVarints,
+  decodePackedVarints,
 } from './gil/gil.js';
 import { parseLevel, COMP_A_PAYLOAD, COMP_B_PAYLOAD, readComponent } from './gil/model.js';
 import { reparentLocal, IDENTITY_TRANSFORM } from './transforms.js';
@@ -51,6 +52,86 @@ function encodeVec3(v) {
   if (v.y !== 0) fields.push(f32Field(2, v.y));
   if (v.z !== 0) fields.push(f32Field(3, v.z));
   return encodeMessage(fields);
+}
+
+// ---------- prefab (entity) groups ----------
+// A world object is a prefab group when its component A/61 (payload field
+// 65) lists child records {1: prefab id, 2: local offset, 3: local rotation,
+// 5: guid, 6: index, 7: member world-object id}. Each member carries
+// component A/62 (payload field 66) {1: group id, 2: prefab id, 3: guid,
+// 4: index}. This is the same layout the .gia entity groups use, and, as
+// there, member transforms are stored in WORLD space. Standalone objects
+// carry both components with an empty payload ({1:62, 66:{}}), which is
+// exactly what a member becomes when it leaves its group. The group's own
+// prefab definition lives in the prefab library (root field 4) and is a
+// separate asset, so ungrouping never touches it.
+const GROUP_CHILD_LIST = 61;
+const GROUP_MEMBERSHIP = 62;
+
+function findCompA(compA, type) {
+  for (const cf of compA) {
+    try {
+      const c = readComponent(cf, COMP_A_PAYLOAD);
+      if (c.type === type) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+/** Child records of a world object's group child list, in list order. */
+function readGroupChildren(compA) {
+  const c = findCompA(compA, GROUP_CHILD_LIST);
+  if (!c || !c.payload || !c.payload.raw.length) return [];
+  let pf;
+  try {
+    pf = parseMessage(c.payload.raw);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const rec of pf) {
+    if (rec.num !== 1 || rec.wire !== 2) continue;
+    let rf;
+    try {
+      rf = parseMessage(rec.raw);
+    } catch {
+      continue;
+    }
+    const v = (n) => {
+      const f = rf.find((x) => x.num === n && x.wire === 0);
+      return f ? fieldVarint(f) : null;
+    };
+    out.push({ prefabId: v(1), guid: v(5), index: v(6), objectId: v(7) });
+  }
+  return out;
+}
+
+// Depth-limited scan of one serialized message for a varint equal to `id`,
+// including packed varint lists. Used to keep a dissolved group's object
+// when something else in the level still points at it.
+function messageMentionsId(raw, id, depth = 0) {
+  if (depth > 7 || !raw.length) return false;
+  let fields;
+  try {
+    fields = parseMessage(raw);
+  } catch {
+    return false;
+  }
+  for (const f of fields) {
+    if (f.wire === 0) {
+      if (fieldVarint(f) === id) return true;
+    } else if (f.wire === 2 && f.raw.length) {
+      if (messageMentionsId(f.raw, id, depth + 1)) return true;
+      try {
+        if (decodePackedVarints(f.raw).includes(id)) return true;
+      } catch {
+        /* not a packed list */
+      }
+    }
+  }
+  return false;
 }
 
 export class GilSession {
@@ -115,15 +196,267 @@ export class GilSession {
 
   // ---------- display views ----------
 
-  /** Object-list rows. eligible = has decorations (a valid extraction parent). */
+  /**
+   * Object-list rows. eligible = has decorations (a valid extraction
+   * parent). Prefab groups are listed even without decorations, since they
+   * can be opened and ungrouped.
+   */
   objects({ parentsOnly = true } = {}) {
     const rows = [];
+    const { groups, memberOf } = this._groupMap();
     for (const o of this.level.objects) {
       const count = o.decorationIds.length;
-      if (parentsOnly && !count) continue;
-      rows.push({ id: o.id, name: o.name, prefabId: o.prefabId, count, eligible: count > 0 });
+      const members = groups.get(o.id);
+      if (parentsOnly && !count && !members) continue;
+      rows.push({
+        id: o.id,
+        name: o.name,
+        prefabId: o.prefabId,
+        count,
+        eligible: count > 0,
+        isGroup: !!members,
+        memberCount: members ? members.length : 0,
+        groupId: memberOf.get(o.id) ?? null,
+      });
     }
     return rows;
+  }
+
+  // ---------- prefab groups ----------
+
+  // group id -> member records (child-list order, existing objects only) and
+  // member id -> group id. Built once per parse and keyed to the level's
+  // object cache, so every mutation and undo/redo rebuilds it.
+  _groupMap() {
+    const objs = this.level.objects;
+    if (this._groupMapFor !== objs) {
+      const ids = new Set(objs.map((o) => o.id));
+      const groups = new Map();
+      const memberOf = new Map();
+      for (const o of objs) {
+        const kids = readGroupChildren(o.compA).filter(
+          (k) => k.objectId !== null && k.objectId !== o.id && ids.has(k.objectId)
+        );
+        if (!kids.length) continue;
+        groups.set(o.id, kids);
+        for (const k of kids) memberOf.set(k.objectId, o.id);
+      }
+      this._groupMapFor = objs;
+      this._groupMapCache = { groups, memberOf };
+    }
+    return this._groupMapCache;
+  }
+
+  isGroup(objectId) {
+    return this._groupMap().groups.has(objectId);
+  }
+
+  groupCount() {
+    return this._groupMap().groups.size;
+  }
+
+  /** Member rows of a prefab group, in child-list order. */
+  groupMembers(groupId) {
+    const kids = this._groupMap().groups.get(groupId);
+    if (!kids) return [];
+    const { groups } = this._groupMap();
+    return kids.map((k, index) => {
+      const o = this.level.objectById(k.objectId);
+      const nested = groups.get(k.objectId);
+      return {
+        index,
+        id: o.id,
+        name: o.name,
+        prefabId: o.prefabId,
+        count: o.decorationIds.length,
+        collision: o.collision !== false,
+        isGroup: !!nested,
+        memberCount: nested ? nested.length : 0,
+        groupIndex: k.index,
+      };
+    });
+  }
+
+  /** 3D-viewer points for a group: one per member, at its world position. */
+  groupMemberPoints(groupId) {
+    return this.groupMembers(groupId).map((m) => {
+      const o = this.level.objectById(m.id);
+      const p = o.transform ? o.transform.pos : { x: 0, y: 0, z: 0 };
+      return { index: m.index, guid: m.id, name: m.name, x: p.x, y: p.y, z: p.z };
+    });
+  }
+
+  /**
+   * Move members out of a prefab group so they become standalone world
+   * objects. `memberIds` limits the operation; omit it to free every
+   * member. Members keep every byte except their emptied membership
+   * component (A/62), and their world placement is unchanged because member
+   * transforms are stored in world space. The group's child list (A/61)
+   * drops their records. Once no member is left, the group object and its
+   * registry items are removed, unless the group still holds decorations,
+   * is itself a member of another group, or is referenced elsewhere among
+   * the world objects or decorations; then it stays as an empty object and
+   * `kept` names the reason. One undoable operation.
+   * Returns {count, freedIds, removedGroup, kept}.
+   */
+  ungroup(groupId, memberIds = null) {
+    const L = this.level;
+    const group = L.objectById(groupId);
+    const kids = this._groupMap().groups.get(groupId);
+    if (!group || !kids) {
+      const e = new Error('This object is not a prefab group.');
+      e.i18n = { key: 'err.notGroup' };
+      throw e;
+    }
+    const want = memberIds == null ? null : new Set([...memberIds].map(Number));
+    const freed = kids.filter((k) => !want || want.has(k.objectId)).map((k) => k.objectId);
+    if (!freed.length) {
+      const e = new Error('Select at least one member to ungroup.');
+      e.i18n = { key: 'err.selectMember' };
+      throw e;
+    }
+    const freedSet = new Set(freed);
+    const dissolve = freed.length === kids.length;
+
+    // Rewrite one component's payload inside a world-object entry (fields
+    // parsed as `ef`); `fn(payloadFields)` returns the new payload fields.
+    const rewriteComp = (ef, type, fn) => {
+      for (let j = 0; j < ef.length; j++) {
+        const cf = ef[j];
+        if (cf.num !== 5 || cf.wire !== 2) continue;
+        let c;
+        try {
+          c = readComponent(cf, COMP_A_PAYLOAD);
+        } catch {
+          continue;
+        }
+        if (c.type !== type) continue;
+        let payloadFields = [];
+        if (c.payload && c.payload.raw.length) {
+          try {
+            payloadFields = parseMessage(c.payload.raw);
+          } catch {
+            payloadFields = [];
+          }
+        }
+        const np = fn(payloadFields);
+        const pfNum = c.payloadFieldNum ?? COMP_A_PAYLOAD[type];
+        const payload = bytesField(pfNum, encodeMessage(np));
+        const newComp = c.payload
+          ? c.fields.map((x) => (x === c.payload ? payload : x))
+          : [...c.fields, payload];
+        ef[j] = msgField(5, newComp);
+        return;
+      }
+    };
+    const recordMember = (rec) => {
+      try {
+        const f = parseMessage(rec.raw).find((x) => x.num === 7 && x.wire === 0);
+        return f ? fieldVarint(f) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const snap = this._snapshot();
+    const objCont = L.objectContainerField;
+    const fields = parseMessage(objCont.raw);
+    let groupIdx = -1;
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      if (f.num !== 1 || f.wire !== 2) continue;
+      let ef;
+      try {
+        ef = parseMessage(f.raw);
+      } catch {
+        continue;
+      }
+      const idF = ef.find((x) => x.num === 1 && x.wire === 0);
+      const id = idF ? fieldVarint(idF) : null;
+      if (id === groupId) {
+        groupIdx = i;
+        rewriteComp(ef, GROUP_CHILD_LIST, (pf) =>
+          pf.filter((r) => !(r.num === 1 && r.wire === 2 && freedSet.has(recordMember(r))))
+        );
+        fields[i] = msgField(1, ef);
+      } else if (freedSet.has(id)) {
+        rewriteComp(ef, GROUP_MEMBERSHIP, () => []);
+        fields[i] = msgField(1, ef);
+      }
+    }
+
+    // Dissolved group: drop the object unless something still needs it.
+    let kept = null;
+    let removed = false;
+    if (dissolve) {
+      if (group.decorationIds.length) kept = 'decorations';
+      else if (this._groupMap().memberOf.has(groupId)) kept = 'nested';
+      else {
+        const others = fields.filter((f, i) => i !== groupIdx && f.wire === 2);
+        const referenced =
+          others.some((f) => messageMentionsId(f.raw, groupId)) ||
+          (L.decoContainerField && messageMentionsId(L.decoContainerField.raw, groupId));
+        if (referenced) kept = 'referenced';
+      }
+      if (!kept && groupIdx !== -1) {
+        fields.splice(groupIdx, 1);
+        removed = true;
+      }
+    }
+    objCont.raw = encodeMessage(fields);
+
+    // Registry: a removed group loses its world-object (kind 200) items.
+    const regCont = L.registryContainerField;
+    if (removed && regCont && regCont.raw.length) {
+      const regFields = parseMessage(regCont.raw);
+      let changed = false;
+      for (let i = 0; i < regFields.length; i++) {
+        const g = regFields[i];
+        if (g.num !== 1 || g.wire !== 2) continue;
+        let gf;
+        try {
+          gf = parseMessage(g.raw);
+        } catch {
+          continue;
+        }
+        let groupChanged = false;
+        for (let j = 0; j < gf.length; j++) {
+          const tab = gf[j];
+          if (tab.num !== 3 || tab.wire !== 2 || !tab.raw.length) continue;
+          let tf;
+          try {
+            tf = parseMessage(tab.raw);
+          } catch {
+            continue;
+          }
+          const keptItems = tf.filter((item) => {
+            if (item.num !== 5 || item.wire !== 2) return true;
+            try {
+              const itf = parseMessage(item.raw);
+              const kindF = itf.find((x) => x.num === 1 && x.wire === 0);
+              const idF = itf.find((x) => x.num === 2 && x.wire === 0);
+              return !(kindF && idF && fieldVarint(kindF) === 200 && fieldVarint(idF) === groupId);
+            } catch {
+              return true;
+            }
+          });
+          if (keptItems.length !== tf.length) {
+            gf[j] = msgField(3, keptItems);
+            groupChanged = true;
+          }
+        }
+        if (groupChanged) {
+          regFields[i] = msgField(1, gf);
+          changed = true;
+        }
+      }
+      if (changed) regCont.raw = encodeMessage(regFields);
+    }
+
+    L.invalidate();
+    this._undo.push({ label: { key: 'gil.op.labelUngroup', params: { n: freed.length } }, snap });
+    this._redo.length = 0;
+    return { count: freed.length, freedIds: freed, removedGroup: removed, kept };
   }
 
   parentCount() {

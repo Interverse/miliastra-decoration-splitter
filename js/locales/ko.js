@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': '장식 {n}개 순서 변경',
   'gil.op.labelRename': '장식 {n}개 이름 변경',
   'gil.op.labelMove': '장식 {n}개 이동',
+  'gil.op.labelUngroup': '오브젝트 {n}개 그룹 해제',
+  'gil.w.groupKept': '빈 그룹 “{name}”({id})은(는) 아직 장식을 포함하고 있거나, 다른 그룹에 속해 있거나, 레벨의 다른 곳에서 참조되고 있어 남겨 두었습니다.',
   'gil.err.moveLimit': '부모 오브젝트 하나에는 장식을 최대 {max}개까지 담을 수 있습니다. 이 이동을 하면 “{name}”은(는) {total}개가 됩니다.',
   // ---- entity groups (ungroup) ----
   'tag.group': '그룹',

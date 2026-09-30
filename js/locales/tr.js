@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': '{n} dekorasyonu yeniden sırala',
   'gil.op.labelRename': '{n} dekorasyonu yeniden adlandır',
   'gil.op.labelMove': '{n} dekorasyonu taşı',
+  'gil.op.labelUngroup': '{n} nesnenin grubunu çöz',
+  'gil.w.groupKept': 'Boş grup “{name}” ({id}) korundu, çünkü hâlâ dekorasyon içeriyor, başka bir gruba ait veya seviyenin başka yerlerinde referans alınıyor.',
   'gil.err.moveLimit': 'Bir üst nesne en fazla {max} dekorasyon barındırabilir. Bu taşıma “{name}” nesnesini {total} dekorasyona çıkarır.',
   // ---- entity groups (ungroup) ----
   'tag.group': 'grup',

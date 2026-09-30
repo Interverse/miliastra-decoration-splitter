@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': '重新排序 {n} 个装饰',
   'gil.op.labelRename': '重命名 {n} 个装饰',
   'gil.op.labelMove': '移动 {n} 个装饰',
+  'gil.op.labelUngroup': '取消 {n} 个物体的分组',
+  'gil.w.groupKept': '空分组“{name}”（{id}）仍包含装饰、属于其他分组或在关卡其他位置被引用，因此已保留。',
   'gil.err.moveLimit': '一个父物体最多可容纳 {max} 个装饰。此次移动会使“{name}”达到 {total} 个。',
   // ---- entity groups (ungroup) ----
   'tag.group': '实体组',

@@ -507,6 +507,7 @@ body.dragging::after {
 #group-bar .split-info { flex: 1 1 200px; }
 #detail-panel.group-view #split-bar,
 #detail-panel.group-view .dec-hint,
+#detail-panel.group-view .table-hint.gil-only,
 #detail-panel.group-view .btn.move,
 #detail-panel.group-view .drag-handle { display: none; }
 #detail-panel.group-view #group-bar { display: flex; }

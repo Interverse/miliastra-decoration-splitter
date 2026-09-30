@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': 'Menyusun ulang {n} dekorasi',
   'gil.op.labelRename': 'Mengganti nama {n} dekorasi',
   'gil.op.labelMove': 'Memindahkan {n} dekorasi',
+  'gil.op.labelUngroup': 'Melepas {n} objek dari grup',
+  'gil.w.groupKept': 'Grup kosong “{name}” ({id}) dipertahankan karena masih berisi dekorasi, termasuk dalam grup lain, atau dirujuk di tempat lain dalam level.',
   'gil.err.moveLimit': 'Satu objek induk hanya bisa menampung maksimal {max} dekorasi. Pemindahan ini akan membuat “{name}” berisi {total}.',
   // ---- entity groups (ungroup) ----
   'tag.group': 'grup',

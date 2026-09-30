@@ -14,6 +14,10 @@ editor that changes its layout depending on which file type you load:
 - **`.gil` levels**: check parent objects, pick some of their attached
   decorations, and extract them into standalone world objects with the same
   world position, rotation, scale and collision state.
+- **`.gil` prefab groups**: a prefab group placed in a level shows up with a
+  group badge. Open it to see its member objects and move any or all of them
+  out of the group. They stay exactly where they are, and the group object
+  is removed once it is empty.
 
 In both modes, data you don't touch is kept byte for byte. That includes
 fields and entry types the tool doesn't know about.
@@ -134,6 +138,23 @@ Toolkit sites through the `miliastra-lang` key.
    - **Separate All Decorations from Selected Parents** extracts every
      decoration of the checked parents.
 
+   Prefab groups: a world object that is a prefab group instance (it lists
+   member objects in its group component) appears in the list with a
+   **group** badge and its member count, even when it holds no decorations
+   of its own. Click it and the table lists the members in group order with
+   their decoration counts, ids, prefabs and collision state. Select some
+   and hit **Ungroup selected**, or use **Ungroup all**. A freed member keeps
+   every byte except its emptied group membership component, which is how
+   the game stores standalone objects, and its placement does not change
+   because member transforms are stored in world space. The group's child
+   list drops the freed records. Once the last member has left, the group
+   object and its registry entry are removed, unless the group still holds
+   decorations, is itself inside another group, or is referenced elsewhere
+   among the world objects or decorations. In that case it stays as an empty
+   object and the toast says so. The prefab definition in the level's prefab
+   library is a separate asset and is never touched. Ungrouping sits on the
+   same undo/redo stack as every other edit.
+
    Two options sit below the buttons and are remembered between visits:
    *Enable Collision for Extracted Objects* (on by default) and *Remove Parent
    Object After Extraction* (off by default). A parent is only deleted if it
@@ -250,6 +271,7 @@ including unknown fields, is kept exactly.
 | `js/i18n.js`, `js/locales/*.js` | localization system and the 15 language dictionaries |
 | `tools/test-splitter.mjs` | .gia test suite (`node tools/test-splitter.mjs`) |
 | `tools/test-gil.mjs` | .gil engine test suite (`node tools/test-gil.mjs`) |
+| `tools/test-gil-group.mjs` | .gil prefab group test suite (`node tools/test-gil-group.mjs`) |
 | `tools/gia-parser.js` | older geometry-aware parser, used only as an independent cross-check in tests |
 | `reference/` | format handoff docs and sample .gia/.gil fixtures |
 
@@ -276,6 +298,7 @@ jsDelivr CDN through an import map, and it is only used by the 3D viewer.
 ```sh
 node tools/test-splitter.mjs
 node tools/test-gil.mjs
+node tools/test-gil-group.mjs
 node tools/test-reparent.mjs
 ```
 
@@ -290,6 +313,12 @@ cases such as moving every entry out of a model.
 transforms in both formats: rotated and zoomed parents, multi-selection
 moves, no drift after repeated reparenting, exact undo, byte restoration when
 moving back, and reloaded files passing the same checks.
+
+`test-gil-group.mjs` runs against the `Prefab Group.gil` fixture (skipped
+when absent) and checks: group detection and member order, partial and full
+ungrouping with only the membership and child-list bytes changing, registry
+cleanup, the prefab library staying untouched, stepwise ungrouping matching a
+single full ungroup byte for byte, exact undo, and reloaded output.
 
 `test-gil.mjs` runs against the sample `.gil` fixtures and checks: byte for
 byte round trips, split output against game-authored standalone counterparts

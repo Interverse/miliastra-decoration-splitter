@@ -209,5 +209,7 @@ export default {
   'gil.op.labelReorder': 'Reorder {n} decoration(s)',
   'gil.op.labelRename': 'Rename {n} decoration(s)',
   'gil.op.labelMove': 'Move {n} decoration(s)',
+  'gil.op.labelUngroup': 'Ungroup {n} object(s)',
+  'gil.w.groupKept': 'The empty group “{name}” ({id}) was kept because it still holds decorations, belongs to another group, or is referenced elsewhere in the level.',
   'gil.err.moveLimit': 'A parent object can hold at most {max} decorations. This move would give “{name}” {total}.',
 };

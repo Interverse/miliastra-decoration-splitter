@@ -177,6 +177,8 @@ export default {
   'gil.op.labelReorder': 'Sắp xếp lại {n} vật trang trí',
   'gil.op.labelRename': 'Đổi tên {n} vật trang trí',
   'gil.op.labelMove': 'Di chuyển {n} vật trang trí',
+  'gil.op.labelUngroup': 'Tách nhóm {n} vật thể',
+  'gil.w.groupKept': 'Nhóm trống “{name}” ({id}) được giữ lại vì vẫn còn chứa vật trang trí, thuộc về một nhóm khác hoặc được tham chiếu ở nơi khác trong màn chơi.',
   'gil.err.moveLimit': 'Một vật thể cha chỉ chứa tối đa {max} vật trang trí. Lần chuyển này sẽ khiến “{name}” có {total}.',
   // ---- entity groups (ungroup) ----
   'tag.group': 'nhóm',
